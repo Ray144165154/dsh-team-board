@@ -296,6 +296,48 @@ async function setTaskStatus(input) {
   })
 }
 
+async function toggleCheck(input) {
+  const taskId = text(input?.taskId, 'taskId', { required: true, max: 64 })
+  const index = input?.index
+  if (!Number.isInteger(index)) throw new Error('index is required and must be an integer')
+  const ok = input?.ok
+  if (ok !== undefined && typeof ok !== 'boolean') throw new Error('ok must be a boolean')
+  return serialize(async () => {
+    const board = await readBoard()
+    const task = board.tasks.find((entry) => entry.id === taskId)
+    if (task === undefined) throw new Error(`unknown task ${taskId}`)
+    const checks = Array.isArray(task.checks) ? task.checks : []
+    if (index < 0 || index >= checks.length) throw new Error(`index ${index} is out of range`)
+    checks[index].ok = ok === undefined ? checks[index].ok !== true : ok
+    task.progress = { passed: checks.filter((entry) => entry.ok === true).length, total: checks.length }
+    task.updatedAt = nowIso()
+    board.updatedAt = nowIso()
+    await persist(board)
+    return { board }
+  })
+}
+
+async function createProject(input) {
+  const name = text(input?.name, 'name', { required: true, max: 120 })
+  const goal = text(input?.goal, 'goal', { max: 4000 }) ?? ''
+  return serialize(async () => {
+    const board = await readBoard()
+    const project = {
+      id: nextId(board.projects, 'P', 1),
+      name,
+      status: 'active',
+      goal,
+      currentTask: '',
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    }
+    board.projects.push(project)
+    board.updatedAt = nowIso()
+    await persist(board)
+    return { board, project: { ...project } }
+  })
+}
+
 async function upsertTask(input) {
   const requestedId = text(input?.taskId, 'taskId', { max: 64 })
   const title = text(input?.title, 'title', { max: 200 })
@@ -485,6 +527,9 @@ const OPERATIONS = {
   state: () => getState(),
   answerDecision,
   setTaskStatus,
+  toggleCheck,
+  createProject,
+  upsertTask,
 }
 
 function reply(rpcId, result) {

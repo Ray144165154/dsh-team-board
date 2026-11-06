@@ -46,6 +46,17 @@ window.__ModuleLoader__.load({
       'error.load': '读取失败：',
       'error.submit': '提交失败：',
       'error.status': '状态更新失败：',
+      'error.project': '新建项目失败：',
+      'error.task': '新建任务失败：',
+      'error.check': '验收更新失败：',
+      'project.switch': '项目',
+      'project.create': '新建项目',
+      'project.createPlaceholder': '项目名称',
+      'task.create': '新建任务',
+      'task.createPlaceholder': '任务标题',
+      'action.create': '创建',
+      'action.cancel': '取消',
+      'action.submitting': '创建中…',
       'empty.board': '协作台还没有内容。',
     }
 
@@ -80,6 +91,17 @@ window.__ModuleLoader__.load({
       'error.load': 'Could not load the board: ',
       'error.submit': 'Could not save the decision: ',
       'error.status': 'Could not change the status: ',
+      'error.project': 'Could not create the project: ',
+      'error.task': 'Could not create the task: ',
+      'error.check': 'Could not update the check: ',
+      'project.switch': 'Project',
+      'project.create': 'New project',
+      'project.createPlaceholder': 'Project name',
+      'task.create': 'New task',
+      'task.createPlaceholder': 'Task title',
+      'action.create': 'Create',
+      'action.cancel': 'Cancel',
+      'action.submitting': 'Creating…',
       'empty.board': 'The board is empty.',
     }
 
@@ -97,6 +119,20 @@ window.__ModuleLoader__.load({
 .tb-refresh:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
 .tb-refresh:disabled { opacity: .6; cursor: default; }
 .tb-refresh:focus-visible, .tb-primary:focus-visible, .tb-status:focus-visible, .tb-input:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+.tb-secondary:focus-visible, .tb-select:focus-visible, .tb-check:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+
+.tb-headMain { flex: 1 1 auto; min-width: 0; }
+.tb-projectBar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.tb-field { display: inline-flex; align-items: center; gap: 8px; }
+.tb-select { min-height: 32px; padding: 5px 30px 5px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.tb-select:hover { background: var(--dsw-alias-bg-layer-2); }
+.tb-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; min-height: 32px; padding: 5px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-1); font: inherit; font-size: 13px; line-height: 20px; cursor: pointer; }
+.tb-secondary:hover:not(:disabled) { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+.tb-secondary:disabled { opacity: .6; cursor: default; }
+.tb-inlineForm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tb-taskForm { margin: 10px 0; }
+.tb-spacer { flex: 1 1 auto; }
+.tb-loading { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
 
 .tb-goal { padding: 16px 18px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
 .tb-goalRow { display: flex; gap: 12px; align-items: baseline; }
@@ -135,16 +171,20 @@ window.__ModuleLoader__.load({
 .tb-status[data-status="done"] { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
 .tb-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
 .tb-checks { list-style: none; margin: 10px 0 0; padding: 0; }
-.tb-checks li { display: flex; gap: 8px; align-items: baseline; margin-top: 4px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; line-height: 20px; }
+.tb-checks li { margin-top: 4px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; line-height: 20px; }
 .tb-checks li[data-ok="true"] { color: var(--dsw-alias-label-primary); }
+.tb-check { display: flex; gap: 8px; align-items: baseline; width: 100%; padding: 3px 4px; box-sizing: border-box; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12.5px; line-height: 20px; text-align: left; cursor: pointer; }
+.tb-check:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-2); }
+.tb-check:disabled { opacity: .55; cursor: default; }
 .tb-checkMark { flex: none; width: 12px; color: var(--dsw-alias-state-idle-primary); font-size: 11px; }
+.tb-checkLabel { flex: 1 1 auto; min-width: 0; }
 .tb-checks li[data-ok="true"] .tb-checkMark { color: var(--dsw-alias-state-success-primary); }
 .tb-note { margin: 8px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; white-space: pre-wrap; }
 
 .tb-empty { padding: 18px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 12px; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
 .tb-error { margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 8px; color: var(--dsw-alias-state-error-primary); font-size: 12.5px; line-height: 19px; }
 .tb-foot { margin-top: 22px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; }
-@media (pointer: coarse) { .tb-primary, .tb-refresh { min-height: 44px; } }
+@media (pointer: coarse) { .tb-primary, .tb-refresh, .tb-secondary, .tb-select, .tb-check { min-height: 44px; } }
 `
 
     /* ---------------------------------------------------------------- */
@@ -205,7 +245,7 @@ window.__ModuleLoader__.load({
             }, submitting ? t('decision.submitting') : t('decision.submit'))))
     }
 
-    function TaskCard({ task, onCycle, t }) {
+    function TaskCard({ task, onCycle, onToggleCheck, busyCheck, t }) {
       const checks = Array.isArray(task.checks) ? task.checks : []
       const progress = task.progress ?? { passed: 0, total: 0 }
       const meta = [
@@ -222,18 +262,30 @@ window.__ModuleLoader__.load({
             className: 'tb-status',
             'data-status': task.status,
             title: t('task.toggle'),
+            'aria-label': `${t('task.toggle')} · ${STATUS_TEXT[task.status] ?? String(task.status ?? 'TODO')}`,
             onClick: () => onCycle(task),
           }, STATUS_TEXT[task.status] ?? String(task.status ?? 'TODO'))),
         meta.length === 0 ? null : h('div', { className: 'tb-meta' },
           meta.map(([label, value]) => h('span', { key: label }, `${label} · ${value}`))),
         checks.length === 0
           ? h('p', { className: 'tb-meta' }, t('task.emptyChecks'))
-          : h('ul', { className: 'tb-checks' }, checks.map((check, index) => h('li', {
-            key: `${index}-${check.label}`,
-            'data-ok': check.ok === true ? 'true' : 'false',
-          },
-          h('span', { className: 'tb-checkMark', 'aria-hidden': true }, check.ok === true ? '●' : '○'),
-          h('span', null, check.label)))),
+          : h('ul', { className: 'tb-checks' }, checks.map((check, index) => {
+            const busyKey = `${task.id}:${index}`
+            return h('li', {
+              key: `${index}-${check.label}`,
+              'data-ok': check.ok === true ? 'true' : 'false',
+            },
+            h('button', {
+              type: 'button',
+              className: 'tb-check',
+              'aria-pressed': check.ok === true ? 'true' : 'false',
+              'aria-busy': busyCheck === busyKey ? 'true' : 'false',
+              disabled: busyCheck === busyKey,
+              onClick: () => onToggleCheck(task.id, index),
+            },
+            h('span', { className: 'tb-checkMark', 'aria-hidden': true }, check.ok === true ? '●' : '○'),
+            h('span', { className: 'tb-checkLabel' }, check.label)))
+          })),
         typeof task.note === 'string' && task.note !== '' ? h('p', { className: 'tb-note' }, task.note) : null)
     }
 
@@ -245,12 +297,21 @@ window.__ModuleLoader__.load({
       const [submitting, setSubmitting] = React.useState('')
       const [notice, setNotice] = React.useState(null)
       const [refreshing, setRefreshing] = React.useState(false)
+      const [selectedProjectId, setSelectedProjectId] = React.useState(null)
+      const [checkBusy, setCheckBusy] = React.useState('')
+      const [projectFormOpen, setProjectFormOpen] = React.useState(false)
+      const [projectName, setProjectName] = React.useState('')
+      const [projectBusy, setProjectBusy] = React.useState(false)
+      const [taskFormOpen, setTaskFormOpen] = React.useState(false)
+      const [taskTitle, setTaskTitle] = React.useState('')
+      const [taskBusy, setTaskBusy] = React.useState(false)
       const live = React.useRef(true)
       const busy = React.useRef(false)
 
       const load = React.useCallback(async (signal) => {
         if (busy.current) return
         busy.current = true
+        setSnapshot((previous) => (previous.board === null ? { ...previous, phase: 'loading' } : previous))
         try {
           const value = await call('state', {}, signal)
           if (!live.current) return
@@ -279,6 +340,13 @@ window.__ModuleLoader__.load({
           window.removeEventListener('focus', onFocus)
         }
       }, [load])
+
+      React.useEffect(() => {
+        if (selectedProjectId !== null) return
+        const list = Array.isArray(snapshot.board?.projects) ? snapshot.board.projects : []
+        const seed = list.find((entry) => entry.status === 'active') ?? list[0]
+        if (seed !== undefined) setSelectedProjectId(seed.id)
+      }, [selectedProjectId, snapshot.board])
 
       const refresh = async () => {
         setRefreshing(true)
@@ -323,11 +391,70 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const toggleCheck = async (taskId, index) => {
+        const key = `${taskId}:${index}`
+        if (checkBusy !== '') return
+        setCheckBusy(key)
+        setNotice(null)
+        try {
+          const value = await call('toggleCheck', { taskId, index })
+          if (!live.current) return
+          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+        } catch (error) {
+          if (live.current) setNotice({ tone: 'error', message: `${t('error.check')}${error?.message ?? error}` })
+        } finally {
+          if (live.current) setCheckBusy('')
+        }
+      }
+
+      const submitProject = async () => {
+        const name = projectName.trim()
+        if (name === '' || projectBusy) return
+        setProjectBusy(true)
+        setNotice(null)
+        try {
+          const value = await call('createProject', { name })
+          if (!live.current) return
+          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          const created = value?.project
+          if (created !== null && typeof created === 'object' && typeof created.id === 'string') {
+            setSelectedProjectId(created.id)
+          }
+          setProjectName('')
+          setProjectFormOpen(false)
+        } catch (error) {
+          if (live.current) setNotice({ tone: 'error', message: `${t('error.project')}${error?.message ?? error}` })
+        } finally {
+          if (live.current) setProjectBusy(false)
+        }
+      }
+
+      const submitTask = async (projectId) => {
+        const title = taskTitle.trim()
+        if (title === '' || taskBusy || projectId === null || projectId === undefined) return
+        setTaskBusy(true)
+        setNotice(null)
+        try {
+          const value = await call('upsertTask', { projectId, title })
+          if (!live.current) return
+          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          setTaskTitle('')
+          setTaskFormOpen(false)
+        } catch (error) {
+          if (live.current) setNotice({ tone: 'error', message: `${t('error.task')}${error?.message ?? error}` })
+        } finally {
+          if (live.current) setTaskBusy(false)
+        }
+      }
+
       const board = snapshot.board
       const projects = Array.isArray(board?.projects) ? board.projects : []
       const decisions = Array.isArray(board?.decisions) ? board.decisions : []
       const tasks = Array.isArray(board?.tasks) ? board.tasks : []
-      const project = projects.find((entry) => entry.status === 'active') ?? projects[0] ?? null
+      const project = projects.find((entry) => entry.id === selectedProjectId)
+        ?? projects.find((entry) => entry.status === 'active')
+        ?? projects[0]
+        ?? null
       const projectDecisions = decisions.filter((entry) => project === null || entry.projectId === project.id)
       const orderedDecisions = projectDecisions
         .map((entry, index) => ({ entry, index }))
@@ -337,7 +464,7 @@ window.__ModuleLoader__.load({
           return leftOpen - rightOpen || left.index - right.index
         })
       const projectTasks = tasks.filter((entry) => project === null || entry.projectId === project.id)
-      const openDecisions = projectDecisions.filter((entry) => entry.status === 'open')
+      const openDecisions = decisions.filter((entry) => entry.status === 'open')
       const activeProjects = projects.filter((entry) => entry.status === 'active')
       const summary = [
         `${t('summary.projects')} ${projects.length}`,
@@ -351,12 +478,73 @@ window.__ModuleLoader__.load({
           : null
       const updatedAt = typeof board?.updatedAt === 'string' ? new Date(board.updatedAt) : null
 
+      if (snapshot.phase === 'loading' && board === null) {
+        return h('div', { className: 'tb-page' },
+          h('div', { className: 'tb-inner' },
+            h('p', { className: 'tb-loading' }, t('state.loading'))))
+      }
+
+      if (snapshot.phase === 'error' && board === null) {
+        return h('div', { className: 'tb-page' },
+          h('div', { className: 'tb-inner' },
+            h('p', { className: 'tb-error', role: 'alert' }, errorMessage),
+            h('button', {
+              type: 'button',
+              className: 'tb-refresh',
+              onClick: () => { void refresh() },
+              disabled: refreshing,
+            }, refreshing ? t('action.refreshing') : t('action.refresh'))))
+      }
+
       return h('div', { className: 'tb-page' },
         h('div', { className: 'tb-inner' },
           h('header', { className: 'tb-head' },
-            h('div', null,
+            h('div', { className: 'tb-headMain' },
               h('h1', { className: 'tb-title' }, project?.name ?? t('page.title')),
-              h('p', { className: 'tb-sub' }, summary)),
+              h('p', { className: 'tb-sub' }, summary),
+              h('div', { className: 'tb-projectBar' },
+                projects.length > 1
+                  ? h('label', { className: 'tb-field' },
+                    h('span', { className: 'tb-label' }, t('project.switch')),
+                    h('select', {
+                      className: 'tb-select',
+                      value: project?.id ?? '',
+                      onChange: (event) => setSelectedProjectId(event.target.value),
+                    }, projects.map((entry) => h('option', { key: entry.id, value: entry.id }, entry.name))))
+                  : null,
+                projectFormOpen
+                  ? h('div', { className: 'tb-inlineForm' },
+                    h('input', {
+                      type: 'text',
+                      className: 'tb-input',
+                      value: projectName,
+                      placeholder: t('project.createPlaceholder'),
+                      'aria-label': t('project.createPlaceholder'),
+                      onChange: (event) => setProjectName(event.target.value),
+                      onKeyDown: (event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          if (projectName.trim() !== '' && !projectBusy) void submitProject()
+                        }
+                      },
+                    }),
+                    h('button', {
+                      type: 'button',
+                      className: 'tb-primary',
+                      disabled: projectBusy || projectName.trim() === '',
+                      onClick: () => { void submitProject() },
+                    }, projectBusy ? t('action.submitting') : t('action.create')),
+                    h('button', {
+                      type: 'button',
+                      className: 'tb-secondary',
+                      disabled: projectBusy,
+                      onClick: () => { setProjectFormOpen(false); setProjectName('') },
+                    }, t('action.cancel')))
+                  : h('button', {
+                    type: 'button',
+                    className: 'tb-secondary',
+                    onClick: () => setProjectFormOpen(true),
+                  }, t('project.create')))),
             h('button', {
               type: 'button',
               className: 'tb-refresh',
@@ -390,13 +578,50 @@ window.__ModuleLoader__.load({
             })),
           h('div', { className: 'tb-sectionHead' },
             h('h2', { className: 'tb-sectionTitle' }, t('section.tasks')),
-            h('span', { className: 'tb-sectionCount' }, String(projectTasks.length))),
+            h('span', { className: 'tb-sectionCount' }, String(projectTasks.length)),
+            h('span', { className: 'tb-spacer' }),
+            project === null || taskFormOpen ? null : h('button', {
+              type: 'button',
+              className: 'tb-secondary',
+              onClick: () => setTaskFormOpen(true),
+            }, t('task.create'))),
+          taskFormOpen
+            ? h('div', { className: 'tb-inlineForm tb-taskForm' },
+              h('input', {
+                type: 'text',
+                className: 'tb-input',
+                value: taskTitle,
+                placeholder: t('task.createPlaceholder'),
+                'aria-label': t('task.createPlaceholder'),
+                onChange: (event) => setTaskTitle(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    if (taskTitle.trim() !== '' && !taskBusy) void submitTask(project?.id)
+                  }
+                },
+              }),
+              h('button', {
+                type: 'button',
+                className: 'tb-primary',
+                disabled: taskBusy || taskTitle.trim() === '',
+                onClick: () => { void submitTask(project?.id) },
+              }, taskBusy ? t('action.submitting') : t('action.create')),
+              h('button', {
+                type: 'button',
+                className: 'tb-secondary',
+                disabled: taskBusy,
+                onClick: () => { setTaskFormOpen(false); setTaskTitle('') },
+              }, t('action.cancel')))
+            : null,
           projectTasks.length === 0
             ? emptyState(t('task.empty'))
             : projectTasks.map((task) => h(TaskCard, {
               key: task.id,
               task,
               onCycle: (entry) => { void cycleStatus(entry) },
+              onToggleCheck: (taskId, index) => { void toggleCheck(taskId, index) },
+              busyCheck: checkBusy,
               t,
             })),
           h('footer', { className: 'tb-foot' },

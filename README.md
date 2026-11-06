@@ -1,11 +1,14 @@
 # 协作台 · Collab Board
 
+[![CI](https://github.com/Ray144165154/dsh-team-board/actions/workflows/ci.yml/badge.svg)](https://github.com/Ray144165154/dsh-team-board/actions/workflows/ci.yml)
+
 > 给多 agent 协作装一块人人能看懂的看板：**agent 登记任务、推进验收，人只负责拍板。**
 
 这是一个 DeepSeek Harness（DSH，本地运行的桌面 agent 应用）插件，装好后侧边栏会多一个「协作台」入口：
 
 - **待拍板**：agent 卡住时抛出的问题卡片，由人填答案；agent 之后自己回读答案继续干活。
-- **任务卡**：每条任务带 `指挥 / 执行 / 验收` 三个角色、状态胶囊、进度 `0/3` 和验收清单。
+- **任务卡**：每条任务带 `指挥 / 执行 / 验收` 三个角色、状态胶囊、进度 `0/3` 和验收清单，验收项点一下就能勾。
+- **多项目**：顶部可切换项目、直接新建项目；任务也能在页面里建，不依赖 agent。
 - **三个工具**：`collab_board_read`、`collab_task_upsert`、`collab_decision_ask`，任何 agent 都能读写这块板。
 
 <details>
@@ -14,8 +17,9 @@
 A DeepSeek Harness plugin that turns multi-agent collaboration into one shared board.
 Agents register tasks (commander / executor / reviewer, status, acceptance checks) and post
 decision cards; the human answers those cards and nothing else. Three tools expose the board
-to any agent; the human-only answer path stays out of the tool surface. State is a plain JSON
-file under `$DSH_HOME`. Host + Client halves, no build step, no dependencies.
+to any agent; the human-only answer path stays out of the tool surface. Projects, tasks and
+acceptance checks are also editable from the page itself. State is a plain JSON file under
+`$DSH_HOME`. Host + Client halves, no build step, no dependencies.
 
 </details>
 
@@ -38,7 +42,8 @@ file under `$DSH_HOME`. Host + Client halves, no build step, no dependencies.
 
 ```
 AHP 协作台                                        [ 刷新 ]
-项目 1 · 进行中 1 · 待拍板 4
+项目 2 · 进行中 2 · 待拍板 4
+项目 [ AHP 协作台 ▾ ]  [ 新建项目 ]
 ──────────────────────────────────────────────────────────
 目标      现在只有「多次对比时」才统计细菌计数，改成：单次检查
           做完 AI 分析后，也用同一套计数代码统计这份数据。
@@ -57,7 +62,7 @@ AHP 协作台                                        [ 刷新 ]
    不动方案文字，只在分析区和报告里显示数字
    拍板结果：同意
 ──────────────────────────────────────────────────────────
-任务 2
+任务 2                                            [ 新建任务 ]
 
 T-078  后端：AI 分析后自动统计细菌计数，并提供读取接口   DOING
        指挥 · claude    执行 · deepseek    验收 0/3
@@ -67,7 +72,7 @@ T-078  后端：AI 分析后自动统计细菌计数，并提供读取接口   D
 ──────────────────────────────────────────────────────────
 ```
 
-交互上有三处：**填拍板并提交**、**点状态胶囊**（`TODO → DOING → DONE`）、**刷新**（页面也会每 6 秒自动轮询，切回窗口时立即刷新）。
+示意图里的 `○` 是可点的验收项。交互上一共六处：**填拍板并提交**、**点验收项**（`○ → ●`，进度自动重算）、**点状态胶囊**（`TODO → DOING → DONE`）、**切换 / 新建项目**、**新建任务**、**刷新**（页面也会每 6 秒自动轮询，切回窗口时立即刷新）。
 
 ## 工作流
 
@@ -195,6 +200,19 @@ flowchart LR
 
 `detail` 支持 `**加粗**`。发出后等人回答，agent 用 `collab_board_read` 回读。
 
+## 页面 RPC
+
+页面的每个动作都对应 Host 上一个方法，和 agent 工具共享同一批底层函数。RPC 走浏览器已认证的 `POST /api/dsh-team-board`，统一返回 `{ ok: true, value }` 或 `{ ok: false, error }` 信封。
+
+| 方法 | 载荷 | 返回 | 谁用 |
+| --- | --- | --- | --- |
+| `state` | `{}` | `{ board }` | 页面轮询 |
+| `answerDecision` | `{ id, answer }` | `{ board }` | 页面（**只有人**） |
+| `setTaskStatus` | `{ id, status }` | `{ board }` | 页面 |
+| `toggleCheck` | `{ taskId, index, ok? }` | `{ board }` | 页面；省略 `ok` 则翻转，并按勾选结果重算 `progress` |
+| `createProject` | `{ name, goal? }` | `{ board, project }` | 页面 / 新建项目 |
+| `upsertTask` | 同 `collab_task_upsert` | `{ board, task }` | 页面 / 新建任务 |
+
 ## 数据
 
 一块板就是一个 JSON 文件，默认在 `~/.dsh/team-board/board.json`（`$DSH_HOME` 存在时优先用它）：
@@ -226,27 +244,30 @@ flowchart LR
 
 ## 已知限制
 
-- 页面只展示**第一个 active 项目**，数据模型支持多个项目，但还没有切换器。
-- 没有权限模型：能打开这块页面的人都能拍板（本地单机场景）。
-- 没有审计/撤销：拍板和改状态的历史没有留存。
-- 没有推送：另一个 tab 改了，本 tab 最多晚 6 秒。
+- 没有权限模型：能打开这块页面的人都能拍板、都能改任务（本地单机场景）。
+- 没有审计/撤销：拍板、改状态、勾验收项的历史都没有留存。
+- 没有删除/归档：项目和任务只能新增与修改，不能删。
+- 没有推送：另一个 tab 改了，本 tab 最多晚 6 秒（轮询）。
+- 多项目只是切换展示：目标卡、待拍板、任务都按当前选中的项目过滤；顶部「待拍板 N」是全局计数。
 
 ## 路线图
 
 - [ ] **GO 派发**：点一下把任务真的推给某个会话 / agent（从「记录」变「调度」）
 - [ ] 人机传话：把人的一句话直接发进指定 agent 的会话
 - [ ] tokens / 工具调用数统计到任务卡
-- [ ] 验收项逐条点击勾选
-- [ ] 多项目切换
+- [x] 验收项逐条点击勾选（v0.2）
+- [x] 多项目切换与新建（v0.2）
+- [ ] 项目 / 任务的删除与归档
 - [ ] SSE 实时推送
 
 ## 开发与验证
 
 ```bash
-node test/verify-host.mjs
+node test/verify-host.mjs    # 45 项 Host 行为检查
+node test/check-client.mjs   # 静态契约检查（无浏览器、无 React）
 ```
 
-这个脚本用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 27 项检查：RPC 信封、并发首读、拍板/改状态、重复拍板与空拍板拒绝、错误码、三个工具、重启后持久化。全部通过会打印 `ALL CHECKS PASSED`；它不会碰你真实的 board 文件。
+`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。两个脚本都不会碰你真实的 board 文件，CI 里也会跑（`.github/workflows/ci.yml`）。
 
 > 页面视觉没有在自动化里核对（无浏览器控制），仓库内的界面示意是结构草图，不是截图。
 
@@ -254,12 +275,20 @@ node test/verify-host.mjs
 
 ```
 .
-├── index.js              # Host：存储 + 三个工具 + RPC
-├── client.js             # Client：侧边栏图标 + 协作台页面
-├── package.json          # bundle 清单（dsh.bundle / dsh.client）
-├── cordis.patch.yml      # 把插件插入 profile 的 patch
-├── locale/{zh,en}.json   # 插件页显示的名称与描述
-├── icon.svg              # 插件图标
-├── test/verify-host.mjs  # 行为回归脚本
+├── index.js                 # Host：存储 + 三个工具 + 6 个 RPC 方法
+├── client.js                # Client：侧边栏图标 + 协作台页面
+├── package.json             # bundle 清单（dsh.bundle / dsh.client）
+├── cordis.patch.yml         # 把插件插入 profile 的 patch
+├── locale/{zh,en}.json      # 插件页显示的名称与描述
+├── icon.svg                 # 插件图标
+├── test/verify-host.mjs     # Host 行为回归（45 项）
+├── test/check-client.mjs    # Client 静态契约检查
+├── .github/workflows/ci.yml # CI：push / PR 跑两条检查
+├── CHANGELOG.md
+├── LICENSE                  # MIT
 └── README.md
 ```
+
+## 许可证
+
+[MIT](LICENSE) © 2026 Ray144165154

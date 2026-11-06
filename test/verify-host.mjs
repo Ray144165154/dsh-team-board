@@ -134,6 +134,48 @@ const missingProject = await readTool.execute({ projectId: 'P-9' }, { signal: ne
 )
 check('unknown project rejected', missingProject === 'unknown project P-9', missingProject)
 
+// --- toggleCheck RPC --------------------------------------------------------
+const flip0 = await rpc('toggleCheck', { taskId: 'T-080', index: 0 })
+const t1 = flip0.json?.result?.value?.board?.tasks?.find((task) => task.id === 'T-080')
+check('toggleCheck flips a check off', flip0.json?.result?.ok === true && t1?.checks?.[0]?.ok === false, t1?.checks)
+check('toggleCheck recomputes progress after flip', t1?.progress?.passed === 0 && t1?.progress?.total === 2, t1?.progress)
+
+const setTrue = await rpc('toggleCheck', { taskId: 'T-080', index: 0, ok: true })
+const t2 = setTrue.json?.result?.value?.board?.tasks?.find((task) => task.id === 'T-080')
+check('toggleCheck sets ok: true', setTrue.json?.result?.ok === true && t2?.checks?.[0]?.ok === true, t2?.checks)
+
+const setBoth = await rpc('toggleCheck', { taskId: 'T-080', index: 1, ok: true })
+const t3 = setBoth.json?.result?.value?.board?.tasks?.find((task) => task.id === 'T-080')
+check('toggleCheck recomputes 2/2 with both checked', t3?.progress?.passed === 2 && t3?.progress?.total === 2, t3?.progress)
+
+const setFalse = await rpc('toggleCheck', { taskId: 'T-080', index: 0, ok: false })
+const t4 = setFalse.json?.result?.value?.board?.tasks?.find((task) => task.id === 'T-080')
+check('toggleCheck sets ok: false', setFalse.json?.result?.ok === true && t4?.checks?.[0]?.ok === false, t4?.checks)
+
+const unknownToggle = await rpc('toggleCheck', { taskId: 'T-999', index: 0 })
+check('toggleCheck rejects unknown task', unknownToggle.json?.result?.ok === false && /unknown task/u.test(unknownToggle.json?.result?.error?.message ?? ''), unknownToggle.json)
+
+const rangeToggle = await rpc('toggleCheck', { taskId: 'T-080', index: 99 })
+check('toggleCheck rejects out-of-range index', rangeToggle.json?.result?.ok === false && /out of range/u.test(rangeToggle.json?.result?.error?.message ?? ''), rangeToggle.json)
+
+// --- createProject RPC ------------------------------------------------------
+const newProject = await rpc('createProject', { name: '  第二项目  ' })
+check('createProject assigns P-2', newProject.json?.result?.ok === true && newProject.json?.result?.value?.project?.id === 'P-2', newProject.json?.result?.value?.project)
+check('createProject trims the name', newProject.json?.result?.value?.project?.name === '第二项目', newProject.json?.result?.value?.project)
+check('createProject defaults goal to empty', newProject.json?.result?.value?.project?.goal === '', newProject.json?.result?.value?.project)
+check('created project matches the board', newProject.json?.result?.value?.board?.projects?.some((project) => project.id === 'P-2' && project.name === '第二项目'), newProject.json?.result?.value?.board?.projects?.map((project) => project.id))
+
+const blankName = await rpc('createProject', { name: '   ' })
+check('createProject rejects a blank name', blankName.json?.result?.ok === false && /name/u.test(blankName.json?.result?.error?.message ?? ''), blankName.json)
+
+// --- upsertTask RPC ---------------------------------------------------------
+const rpcCreated = await rpc('upsertTask', { projectId: 'P-2', title: 'RPC 建任务', checks: ['检查 1', '检查 2'] })
+check('upsertTask RPC creates task in requested project', rpcCreated.json?.result?.ok === true && rpcCreated.json?.result?.value?.task?.id === 'T-081' && rpcCreated.json?.result?.value?.task?.projectId === 'P-2', rpcCreated.json?.result?.value?.task)
+check('upsertTask RPC returns the board too', rpcCreated.json?.result?.value?.board?.tasks?.some((task) => task.id === 'T-081'), rpcCreated.json?.result?.value?.board?.tasks?.map((task) => task.id))
+
+const rpcUpdated = await rpc('upsertTask', { taskId: 'T-081', doneChecks: ['检查 1'] })
+check('upsertTask RPC keeps done check by label', rpcUpdated.json?.result?.value?.task?.checks?.find((entry) => entry.label === '检查 1')?.ok === true && rpcUpdated.json?.result?.value?.task?.checks?.find((entry) => entry.label === '检查 2')?.ok === false, rpcUpdated.json?.result?.value?.task?.checks)
+
 // --- restart persistence ---------------------------------------------------
 const { apply: applyAgain } = await import('../index.js?restart=1')
 let secondTools = new Map()
@@ -152,6 +194,9 @@ const response = await secondRoute.fetch(new Request('http://127.0.0.1/api/dsh-t
 const reloaded = JSON.parse(await response.text())
 check('state survives a fresh module load', reloaded.result.value.board.tasks.some((task) => task.id === 'T-080'), reloaded.result.ok)
 check('answered decision survives restart', reloaded.result.value.board.decisions.find((entry) => entry.id === 'D-1')?.status === 'answered')
+check('toggled check survives a fresh module load', reloaded.result.value.board.tasks.find((task) => task.id === 'T-080')?.checks?.[0]?.ok === false, reloaded.result.value.board.tasks.find((task) => task.id === 'T-080')?.checks)
+check('created project survives a fresh module load', reloaded.result.value.board.projects.some((project) => project.id === 'P-2'), reloaded.result.value.board.projects.map((project) => project.id))
+check('upsertTask RPC task survives a fresh module load', reloaded.result.value.board.tasks.some((task) => task.id === 'T-081'), reloaded.result.value.board.tasks.map((task) => task.id))
 
 for (const dispose of disposers) { try { dispose() } catch {} }
 await new Promise((resolve) => setTimeout(resolve, 150))
