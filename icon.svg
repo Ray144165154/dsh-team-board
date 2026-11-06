@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Collaboration board">
+  <rect x="6" y="10" width="52" height="44" rx="8" fill="#1f6feb" opacity="0.14"/>
+  <rect x="6" y="10" width="52" height="44" rx="8" fill="none" stroke="#1f6feb" stroke-width="3"/>
+  <rect x="16" y="20" width="12" height="10" rx="3" fill="#1f6feb"/>
+  <rect x="16" y="34" width="12" height="10" rx="3" fill="#1f6feb" opacity="0.45"/>
+  <rect x="33" y="22" width="16" height="5" rx="2.5" fill="#1f6feb" opacity="0.8"/>
+  <rect x="33" y="36" width="11" height="5" rx="2.5" fill="#1f6feb" opacity="0.45"/>
+</svg>
