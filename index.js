@@ -686,6 +686,12 @@ async function upsertTask(input) {
       const marks = new Set(doneChecks)
       task.checks = (task.checks ?? []).map((entry) => ({ ...entry, ok: entry.ok || marks.has(entry.label) }))
     }
+    // The acceptance list is the source of truth for progress: an agent that
+    // reports doneChecks must not leave the card at its old 0/N.
+    if (checks !== undefined || doneChecks !== undefined) {
+      const list = Array.isArray(task.checks) ? task.checks : []
+      task.progress = { passed: list.filter((entry) => entry.ok === true).length, total: list.length }
+    }
     task.updatedAt = nowIso()
     board.updatedAt = nowIso()
     await persist(board)

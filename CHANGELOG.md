@@ -4,6 +4,17 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-08
+
+### Fixed
+
+- `collab_task_upsert` 收到 `doneChecks` 时现在会按验收清单重算 `progress`，agent 报告完成项后卡片不会再停留在 `0/N`。
+
+### Changed
+
+- `verify-host` 增加到 77 项（新增 doneChecks 重算进度的断言）。
+- 版本号 0.3.1 → 0.3.2。
+
 ## [0.3.1] - 2026-11-08
 
 ### Fixed

@@ -308,7 +308,7 @@ flowchart LR
 ## 开发与验证
 
 ```bash
-node test/verify-host.mjs    # 76 项 Host 行为检查
+node test/verify-host.mjs    # 77 项 Host 行为检查
 node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
 ```
 
@@ -326,7 +326,7 @@ node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 Rea
 ├── cordis.patch.yml         # 把插件插入 profile 的 patch
 ├── locale/{zh,en}.json      # 插件页显示的名称与描述
 ├── icon.svg                 # 插件图标
-├── test/verify-host.mjs     # Host 行为回归（76 项）
+├── test/verify-host.mjs     # Host 行为回归（77 项）
 ├── test/check-client.mjs    # Client 静态契约检查
 ├── .github/workflows/ci.yml # CI：push / PR 跑两条检查
 ├── CHANGELOG.md

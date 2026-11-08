@@ -158,10 +158,9 @@ const updated = await tools.get('collab_task_upsert').execute({
   taskId: 'T-080',
   status: 'doing',
   doneChecks: ['检查 A'],
-  progressPassed: 1,
 }, { signal: new AbortController().signal })
 check('tool keeps check done by label', updated.task.checks[0].ok === true && updated.task.checks[1].ok === false, updated.task.checks)
-check('tool keeps progress', updated.task.progress.passed === 1 && updated.task.progress.total === 2, updated.task.progress)
+check('tool recomputes progress from doneChecks', updated.task.progress.passed === 1 && updated.task.progress.total === 2, updated.task.progress)
 
 const askedTool = await tools.get('collab_decision_ask').execute({ title: '临时拍板', detail: '**加粗**测试' }, { signal: new AbortController().signal })
 check('tool asks a decision -> D-5', askedTool.decision.id === 'D-5' && askedTool.decision.status === 'open', askedTool.decision)
@@ -319,6 +318,7 @@ check('upsertTask RPC returns the board too', rpcCreated.json?.result?.value?.bo
 
 const rpcUpdated = await rpc('upsertTask', { taskId: 'T-081', doneChecks: ['检查 1'] })
 check('upsertTask RPC keeps done check by label', rpcUpdated.json?.result?.value?.task?.checks?.find((entry) => entry.label === '检查 1')?.ok === true && rpcUpdated.json?.result?.value?.task?.checks?.find((entry) => entry.label === '检查 2')?.ok === false, rpcUpdated.json?.result?.value?.task?.checks)
+check('upsertTask RPC recomputes progress from doneChecks', rpcUpdated.json?.result?.value?.task?.progress?.passed === 1 && rpcUpdated.json?.result?.value?.task?.progress?.total === 2, rpcUpdated.json?.result?.value?.task?.progress)
 
 // --- restart persistence ---------------------------------------------------
 const { apply: applyAgain } = await import('../index.js?restart=1')
