@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-08
+
+### Added
+
+- CI 改为 `ubuntu-latest` / `macos-latest` / `windows-latest` 三平台矩阵，同一套 Host + Client 测试都跑。
+- Windows 下 board 写入在目标文件被杀毒 / 索引器短暂占用时先重试，仍失败则退化为复制覆盖，避免看板整体写不进去。
+
+### Changed
+
+- README 补充跨平台说明、Windows 数据路径与写入兜底。
+- 版本号 0.3.2 → 0.3.3（无 API 变化）。
+
 ## [0.3.2] - 2026-11-08
 
 ### Fixed

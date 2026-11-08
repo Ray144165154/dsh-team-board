@@ -160,12 +160,37 @@ function normalizeBoard(value) {
   }
 }
 
+/** Windows can briefly lock the destination (indexer/AV); retry, then copy. */
+const WINDOWS_REPLACE_CODES = new Set(['EPERM', 'EBUSY', 'EACCES', 'EEXIST'])
+
+async function replaceBoardFile(temporary, file) {
+  try {
+    await fs.rename(temporary, file)
+    return
+  } catch (error) {
+    if (process.platform !== 'win32' || !WINDOWS_REPLACE_CODES.has(error?.code)) throw error
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)))
+      try {
+        await fs.rename(temporary, file)
+        return
+      } catch (retry) {
+        if (!WINDOWS_REPLACE_CODES.has(retry?.code)) throw retry
+      }
+    }
+    // Atomic replace is impossible while the handle is held; keep the board
+    // writable with a copy and clean up the temporary file.
+    await fs.copyFile(temporary, file)
+    await fs.rm(temporary, { force: true })
+  }
+}
+
 async function persist(board) {
   await fs.mkdir(boardDirectory(), { recursive: true })
   const file = boardFile()
   const temporary = `${file}.${process.pid}.tmp`
   await fs.writeFile(temporary, `${JSON.stringify(board, null, 2)}\n`, 'utf8')
-  await fs.rename(temporary, file)
+  await replaceBoardFile(temporary, file)
   cached = board
 }
 

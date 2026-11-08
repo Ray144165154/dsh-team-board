@@ -138,6 +138,8 @@ flowchart LR
 
 **前提**：DSH Desktop（Web UI 的 profile），本插件在 **0.2.2-rc.1** 上开发验证，其它版本未测。升级到 v0.3 后需要重启一次 DSH（Host 半边的投递代码要重新加载）；只刷新页面不会换掉运行中的 Host。
 
+**跨平台**：Host 只用 Node 内置模块（`node:fs` / `node:os` / `node:path` / `node:crypto`），Client 只用标准 DOM 与 DSH 主题变量，macOS / Windows / Linux 的 DSH Desktop 通用；CI 在 `ubuntu-latest`、`macos-latest`、`windows-latest` 三个平台跑同一套测试。派发 / 传话依赖各平台同版本的 `agents` / `sessions` 服务；Agent Teams 是可选增强，没有它只是不显示队友会话。
+
 1. 把本仓库克隆到本地任意目录：
 
    ```bash
@@ -243,7 +245,7 @@ flowchart LR
 
 ## 数据
 
-一块板就是一个 JSON 文件，默认在 `~/.dsh/team-board/board.json`（`$DSH_HOME` 存在时优先用它）：
+一块板就是一个 JSON 文件，默认在 `~/.dsh/team-board/board.json`（`$DSH_HOME` 存在时优先用它；Windows 上是 `%USERPROFILE%\.dsh\team-board\board.json`）：
 
 ```jsonc
 {
@@ -268,7 +270,7 @@ flowchart LR
 
 `dispatches` 只保留最近 10 条，`messages` 也只保留最近 10 条，避免单卡无限增长。旧版 `board.json` 没有这些字段也能直接读，页面按「无派发 / 无投递」渲染。
 
-写入走 `临时文件 + rename`，并且所有变更串行化；文件损坏时会先备份成 `board.json.corrupt-<时间戳>.json` 再重建，不会直接清空。
+写入走 `临时文件 + rename`，并且所有变更串行化；Windows 上如果目标文件被杀毒 / 索引器短暂占用，会先重试，仍失败则退化为复制覆盖，避免整个看板写不进去。文件损坏时会先备份成 `board.json.corrupt-<时间戳>.json` 再重建，不会直接清空。
 
 ## 设计取舍
 
@@ -312,7 +314,7 @@ node test/verify-host.mjs    # 77 项 Host 行为检查
 node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
 ```
 
-`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。两个脚本都不会碰你真实的 board 文件，CI 里也会跑（`.github/workflows/ci.yml`）。
+`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。两个脚本都不会碰你真实的 board 文件，CI 会在 Linux / macOS / Windows 三个平台都跑（`.github/workflows/ci.yml`）。
 
 > 页面视觉没有在自动化里核对（无浏览器控制），仓库内的界面示意是结构草图，不是截图。
 
@@ -328,7 +330,7 @@ node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 Rea
 ├── icon.svg                 # 插件图标
 ├── test/verify-host.mjs     # Host 行为回归（77 项）
 ├── test/check-client.mjs    # Client 静态契约检查
-├── .github/workflows/ci.yml # CI：push / PR 跑两条检查
+├── .github/workflows/ci.yml # CI：push / PR 在 Linux / macOS / Windows 跑两条检查
 ├── CHANGELOG.md
 ├── LICENSE                  # MIT
 └── README.md
