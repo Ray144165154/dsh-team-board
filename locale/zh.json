@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "协作台",
-    "description": "多 agent 协作用的中枢看板：待拍板卡片由人拍板，任务卡带指挥/执行/验收角色与验收项，并向 agent 提供 collab_board_read / collab_task_upsert / collab_decision_ask 三个读写工具。"
+    "description": "多 agent 协作用的中枢看板：GO 派发把任务推进指定会话，人机传话与拍板答案自动投回提问会话，任务卡带指挥/执行/验收角色与验收项，并向 agent 提供 collab_board_read / collab_task_upsert / collab_decision_ask 三个读写工具。"
   }
 }

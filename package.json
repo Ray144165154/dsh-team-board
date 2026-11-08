@@ -1,9 +1,9 @@
 {
   "name": "@local/dsh-team-board",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "协作台：多 agent 协作协议看板，含待拍板卡与 agent 读写工具",
+  "description": "协作台：多 agent 协作协议看板，含 GO 派发、人机传话、待拍板卡与 agent 读写工具",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -18,7 +18,9 @@
     "icon.svg"
   ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true

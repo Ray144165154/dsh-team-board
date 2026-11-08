@@ -15,12 +15,54 @@ const { apply } = await import('../index.js')
 const tools = new Map()
 let route
 const disposers = []
+
+// Live DSH services the Host delivery layer reads through ctx.get(). The fake
+// agents record every accepted inbox message so delivery is observable.
+const deliveries = []
+const agents = new Map()
+const sessions = []
+const titles = new Map()
+
+function liveSession(id, title) {
+  const session = {
+    id,
+    header: { id, cwd: '/tmp/team-board', origin: 'user', createdAt: Date.now() },
+    seq: 7,
+  }
+  sessions.push(session)
+  titles.set(id, title)
+  const agent = {
+    id,
+    status: 'idle',
+    session,
+    followup(message) { deliveries.push({ sessionId: id, mode: 'queue', message }) },
+    steer(message) { deliveries.push({ sessionId: id, mode: 'steer', message }) },
+  }
+  agents.set(id, agent)
+  return agent
+}
+
+liveSession('session-alpha', '主会话')
+liveSession('session-beta', '执行会话')
+const teammateSession = liveSession('session-teammate', '队友会话')
+teammateSession.session.header.origin = 'subagent'
+const ephemeralSession = liveSession('session-sub', '临时子会话')
+ephemeralSession.session.header.origin = 'subagent'
+
+const fakeServices = {
+  agents: { get: (id) => agents.get(id), list: () => [...agents.values()] },
+  sessions: { list: () => sessions },
+  sessionTitle: { get: (session) => ({ title: titles.get(session?.header?.id) ?? '' }) },
+  agentTeams: { tryMembership: (agent) => (agent?.id === 'session-teammate' ? { role: 'teammate', name: 'reviewer' } : undefined) },
+}
+
 const ctx = {
   effect: (fn) => {
     const disposer = fn()
     if (typeof disposer === 'function') disposers.push(disposer)
     return () => {}
   },
+  get: (name) => fakeServices[name],
   tools: { register: (definition) => { tools.set(definition.name, definition); return () => {} } },
   connection: { fetch: { register: (registered) => { route = registered; return () => {} } } },
   logger: { warn: (...args) => console.warn('[host warn]', ...args) },
@@ -134,6 +176,84 @@ const missingProject = await readTool.execute({ projectId: 'P-9' }, { signal: ne
 )
 check('unknown project rejected', missingProject === 'unknown project P-9', missingProject)
 
+// --- live-session delivery (GO dispatch / human message) -------------------
+const listed = await rpc('listSessions')
+const listedSessions = listed.json?.result?.value?.sessions ?? []
+check('listSessions returns live sessions including Team teammates', listed.json?.result?.ok === true && listedSessions.length === 3, listedSessions)
+check('listSessions hides ephemeral subagents', !listedSessions.some((entry) => entry.id === 'session-sub'), listedSessions.map((entry) => entry.id))
+check('listSessions marks a teammate', listedSessions.find((entry) => entry.id === 'session-teammate')?.kind === 'teammate', listedSessions.find((entry) => entry.id === 'session-teammate'))
+check('listSessions labels a teammate with its name', listedSessions.find((entry) => entry.id === 'session-teammate')?.title === 'reviewer', listedSessions.find((entry) => entry.id === 'session-teammate'))
+check('listSessions carries title and availability', listedSessions.find((entry) => entry.id === 'session-alpha')?.title === '主会话'
+  && listedSessions.find((entry) => entry.id === 'session-alpha')?.status === 'idle', listedSessions)
+
+const dispatched = await rpc('dispatchTask', { taskId: 'T-079', sessionId: 'session-alpha', note: '先跑测试' })
+const dispatchedTask = dispatched.json?.result?.value?.task
+check('dispatchTask -> ok', dispatched.json?.result?.ok === true, dispatched.json)
+check('dispatchTask moves the task to doing', dispatchedTask?.status === 'doing', dispatchedTask)
+check('dispatchTask records one dispatch', dispatchedTask?.dispatches?.length === 1 && dispatchedTask?.dispatches?.[0]?.sessionId === 'session-alpha', dispatchedTask?.dispatches)
+check('dispatchTask sets the project current task', dispatched.json?.result?.value?.board?.projects?.[0]?.currentTask === 'T-079', dispatched.json?.result?.value?.board?.projects?.[0])
+const dispatchedMessage = deliveries.at(-1)
+check('dispatch delivers a user message into the session', dispatchedMessage?.sessionId === 'session-alpha'
+  && dispatchedMessage?.message?.role === 'user'
+  && dispatchedMessage?.message?.source?.kind === 'user'
+  && typeof dispatchedMessage?.message?.id === 'string', dispatchedMessage)
+const dispatchedBody = dispatchedMessage?.message?.content?.[0]?.text ?? ''
+check('dispatch prompt names the task and carries the instruction', dispatchedBody.includes('T-079') && dispatchedBody.includes('先跑测试') && dispatchedBody.includes('collab_board_read'), dispatchedBody.slice(0, 120))
+check('dispatch is persisted', (await readFile(path.join(home, 'team-board', 'board.json'), 'utf8')).includes('"dispatches"'))
+
+const dispatchUnknown = await rpc('dispatchTask', { taskId: 'T-999', sessionId: 'session-alpha' })
+check('dispatchTask rejects an unknown task', dispatchUnknown.json?.result?.ok === false && /unknown task/u.test(dispatchUnknown.json?.result?.error?.message ?? ''), dispatchUnknown.json)
+const deliveredBefore = deliveries.length
+const dispatchClosed = await rpc('dispatchTask', { taskId: 'T-079', sessionId: 'session-missing' })
+check('dispatchTask rejects a closed session', dispatchClosed.json?.result?.ok === false && /not open/u.test(dispatchClosed.json?.result?.error?.message ?? ''), dispatchClosed.json)
+check('failed dispatch sends nothing', deliveries.length === deliveredBefore, deliveries.length)
+
+const messageSend = await rpc('sendMessage', { sessionId: 'session-beta', text: '先别动前端', taskId: 'T-079' })
+check('sendMessage -> ok', messageSend.json?.result?.ok === true, messageSend.json)
+check('sendMessage delivers the human sentence', deliveries.at(-1)?.sessionId === 'session-beta'
+  && deliveries.at(-1)?.message?.content?.[0]?.text?.includes('先别动前端'), deliveries.at(-1))
+check('sendMessage records the message on the task', messageSend.json?.result?.value?.task?.messages?.at(-1)?.text === '先别动前端', messageSend.json?.result?.value?.task?.messages)
+
+agents.get('session-beta').status = 'running'
+const steered = await rpc('dispatchTask', { taskId: 'T-080', sessionId: 'session-beta', mode: 'steer' })
+check('steer mode inserts into a running agent', deliveries.at(-1)?.mode === 'steer'
+  && steered.json?.result?.value?.task?.dispatches?.at(-1)?.mode === 'steer', steered.json?.result?.value?.task?.dispatches)
+agents.get('session-beta').status = 'idle'
+
+// A decision asked from a live session remembers who asked, and the human's
+// answer is pushed back into that same session automatically.
+const askedFromSession = await tools.get('collab_decision_ask').execute({
+  title: '来自执行会话的问题',
+  detail: '选 A 还是 B',
+}, { agent: agents.get('session-beta'), signal: new AbortController().signal })
+check('decision tool records the asking session', askedFromSession.decision.sourceSessionId === 'session-beta'
+  && askedFromSession.decision.sourceSessionTitle === '执行会话', askedFromSession.decision)
+const answeredFromSession = await rpc('answerDecision', { id: askedFromSession.decision.id, answer: '选 B' })
+const relayedDecision = answeredFromSession.json?.result?.value?.board?.decisions?.find((entry) => entry.id === askedFromSession.decision.id)
+check('answerDecision relays the answer to the asking session', answeredFromSession.json?.result?.ok === true
+  && relayedDecision?.delivery?.status === 'sent'
+  && deliveries.at(-1)?.sessionId === 'session-beta'
+  && deliveries.at(-1)?.message?.content?.[0]?.text?.includes('选 B'), [relayedDecision?.delivery, deliveries.at(-1)])
+
+// Delivery failure never blocks saving the answer; a later retry can deliver.
+const askedForRetry = await tools.get('collab_decision_ask').execute({
+  title: '掉线后重发',
+  detail: '选 C 吗',
+}, { agent: agents.get('session-beta'), signal: new AbortController().signal })
+const retryAgent = agents.get('session-beta')
+agents.delete('session-beta')
+const answeredOffline = await rpc('answerDecision', { id: askedForRetry.decision.id, answer: '选 C' })
+const failedDecision = answeredOffline.json?.result?.value?.board?.decisions?.find((entry) => entry.id === askedForRetry.decision.id)
+check('answer still saves when the session is gone', answeredOffline.json?.result?.ok === true
+  && failedDecision?.status === 'answered'
+  && failedDecision?.delivery?.status === 'failed'
+  && /not open/u.test(failedDecision?.delivery?.error ?? ''), failedDecision)
+agents.set('session-beta', retryAgent)
+const retried = await rpc('deliverDecision', { id: askedForRetry.decision.id })
+check('deliverDecision retries the relay', retried.json?.result?.ok === true
+  && retried.json?.result?.value?.delivery?.status === 'sent'
+  && deliveries.at(-1)?.message?.content?.[0]?.text?.includes('选 C'), retried.json)
+
 // --- toggleCheck RPC --------------------------------------------------------
 const flip0 = await rpc('toggleCheck', { taskId: 'T-080', index: 0 })
 const t1 = flip0.json?.result?.value?.board?.tasks?.find((task) => task.id === 'T-080')
@@ -194,6 +314,11 @@ const response = await secondRoute.fetch(new Request('http://127.0.0.1/api/dsh-t
 const reloaded = JSON.parse(await response.text())
 check('state survives a fresh module load', reloaded.result.value.board.tasks.some((task) => task.id === 'T-080'), reloaded.result.ok)
 check('answered decision survives restart', reloaded.result.value.board.decisions.find((entry) => entry.id === 'D-1')?.status === 'answered')
+check('dispatch record survives restart', reloaded.result.value.board.tasks.find((task) => task.id === 'T-079')?.dispatches?.length === 1, reloaded.result.value.board.tasks.find((task) => task.id === 'T-079')?.dispatches)
+check('answering session and delivery survive restart', (() => {
+  const decision = reloaded.result.value.board.decisions.find((entry) => entry.id === askedFromSession.decision.id)
+  return decision?.sourceSessionId === 'session-beta' && decision?.delivery?.status === 'sent'
+})(), reloaded.result.value.board.decisions.find((entry) => entry.id === askedFromSession.decision.id))
 check('toggled check survives a fresh module load', reloaded.result.value.board.tasks.find((task) => task.id === 'T-080')?.checks?.[0]?.ok === false, reloaded.result.value.board.tasks.find((task) => task.id === 'T-080')?.checks)
 check('created project survives a fresh module load', reloaded.result.value.board.projects.some((project) => project.id === 'P-2'), reloaded.result.value.board.projects.map((project) => project.id))
 check('upsertTask RPC task survives a fresh module load', reloaded.result.value.board.tasks.some((task) => task.id === 'T-081'), reloaded.result.value.board.tasks.map((task) => task.id))

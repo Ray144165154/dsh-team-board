@@ -6,6 +6,7 @@
  * functions the tools use, so the UI and an agent can never disagree about
  * the board's rules.
  */
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -136,6 +137,8 @@ function seedBoard() {
 let cached
 let writeChain = Promise.resolve()
 let loading
+/** Cordis context of the mounted Host plugin; delivery reads optional DSH services from it. */
+let runtime
 
 /** Serialize every mutation so two callers cannot interleave writes. */
 function serialize(work) {
@@ -241,6 +244,184 @@ function nextId(items, prefix, digits) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Session delivery                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Read one optional DSH service; a minimal profile may not compose it. */
+function service(name) {
+  const ctx = runtime
+  if (ctx === undefined) return undefined
+  try {
+    return typeof ctx.get === 'function' ? ctx.get(name) : ctx[name]
+  } catch {
+    return undefined
+  }
+}
+
+function sessionIdOf(session) {
+  if (session === null || typeof session !== 'object') return ''
+  const header = session.header
+  if (header !== null && typeof header === 'object' && typeof header.id === 'string') return header.id
+  return typeof session.id === 'string' ? session.id : ''
+}
+
+function sessionTitleOf(session) {
+  if (session === null || typeof session !== 'object') return ''
+  const titles = service('sessionTitle')
+  if (titles === null || titles === undefined || typeof titles.get !== 'function') return ''
+  try {
+    const snapshot = titles.get(session)
+    return typeof snapshot?.title === 'string' ? snapshot.title : ''
+  } catch {
+    return ''
+  }
+}
+
+/** Prefer a Team teammate's stable name; fall back to the session title. */
+function agentLabel(agent) {
+  const session = agent?.session
+  if (session?.header?.origin === 'subagent') {
+    try {
+      const member = service('agentTeams')?.tryMembership?.(agent)
+      if (typeof member?.name === 'string' && member.name !== '') return member.name
+    } catch {
+      // fall through to the session title
+    }
+  }
+  return sessionTitleOf(session)
+}
+
+/**
+ * Build the user-role message the session inbox accepts. Only the fields the
+ * session log validates are required: an id, role `user`, one text block and
+ * a string `source.kind`.
+ */
+function userMessage(body) {
+  return {
+    id: randomUUID(),
+    role: 'user',
+    content: [{ type: 'text', text: body }],
+    source: { kind: 'user' },
+  }
+}
+
+/**
+ * Every live, user-facing session with its current availability. Delivery can
+ * only reach sessions an agent is currently running on, so the page shows this
+ * list instead of pretending every stored session is addressable.
+ */
+function listLiveSessions() {
+  const sessions = service('sessions')
+  const agents = service('agents')
+  if (sessions === null || sessions === undefined || typeof sessions.list !== 'function'
+    || agents === null || agents === undefined || typeof agents.get !== 'function') {
+    return { sessions: [], unavailable: true }
+  }
+  const teams = service('agentTeams')
+  const items = []
+  for (const session of sessions.list()) {
+    const id = sessionIdOf(session)
+    if (id === '') continue
+    const header = session.header ?? {}
+    const agent = agents.get(id)
+    if (agent === null || agent === undefined) continue
+    // Ephemeral subagents are noise here, but a named Team teammate is a
+    // first-class dispatch target even though it is persisted as a child.
+    let teammate
+    if (header.origin === 'subagent') {
+      try {
+        teammate = typeof teams?.tryMembership === 'function' ? teams.tryMembership(agent) : undefined
+      } catch {
+        teammate = undefined
+      }
+      if (teammate === undefined || teammate === null) continue
+    }
+    items.push({
+      id,
+      title: teammate !== undefined
+        ? (typeof teammate.name === 'string' && teammate.name !== '' ? teammate.name : sessionTitleOf(session))
+        : sessionTitleOf(session),
+      cwd: typeof header.cwd === 'string' ? header.cwd : '',
+      status: agent.status === 'running' ? 'running' : 'idle',
+      kind: teammate === undefined ? 'session' : 'teammate',
+      createdAt: Number.isFinite(header.createdAt) ? header.createdAt : 0,
+      events: Number.isSafeInteger(session.seq) ? session.seq : 0,
+    })
+  }
+  items.sort((left, right) => {
+    if (left.status !== right.status) return left.status === 'running' ? -1 : 1
+    if (left.createdAt !== right.createdAt) return right.createdAt - left.createdAt
+    return right.events - left.events
+  })
+  return { sessions: items, unavailable: false }
+}
+
+/**
+ * Push one human message into a live session. A running agent receives a
+ * `steer` at its nearest step boundary; otherwise the message becomes the next
+ * turn (`followup`) and wakes the agent. Acceptance is synchronous, but it only
+ * means the message joined the inbox — not that the agent has processed it.
+ */
+function deliverToSession(sessionId, body, options = {}) {
+  const agents = service('agents')
+  if (agents === null || agents === undefined || typeof agents.get !== 'function') {
+    throw new Error('the DSH agent service is unavailable; restart DSH after installing this version')
+  }
+  const agent = agents.get(sessionId)
+  if (agent === null || agent === undefined) {
+    throw new Error(`session ${sessionId} is not open; open it in the sidebar once, then retry`)
+  }
+  const message = userMessage(body)
+  const mode = options.mode === 'steer' && agent.status === 'running' ? 'steer' : 'queue'
+  if (mode === 'steer') agent.steer(message)
+  else agent.followup(message)
+  return {
+    status: 'sent',
+    sessionId,
+    sessionTitle: agentLabel(agent),
+    mode,
+    at: nowIso(),
+  }
+}
+
+function deliveryFailure(sessionId, title, error) {
+  return {
+    status: 'failed',
+    sessionId,
+    sessionTitle: typeof title === 'string' ? title : '',
+    at: nowIso(),
+    error: String(error?.message ?? error),
+  }
+}
+
+function dispatchPrompt(task, project, note) {
+  const lines = [
+    `【协作台 · 任务派发】${task.id} · ${task.title}`,
+    `项目：${project.name}（${project.id}）`,
+  ]
+  if (typeof project.goal === 'string' && project.goal !== '') lines.push(`项目目标：${project.goal}`)
+  lines.push(`角色：指挥 ${task.commander || '—'} · 执行 ${task.executor || '—'} · 验收 ${task.reviewer || '—'}`)
+  if (Array.isArray(task.checks) && task.checks.length > 0) {
+    lines.push('验收清单：')
+    task.checks.forEach((check, index) => { lines.push(`${index + 1}. ${check.label}`) })
+  }
+  if (typeof task.note === 'string' && task.note !== '') lines.push(`当前备注：${task.note}`)
+  if (typeof note === 'string' && note !== '') lines.push(`人的补充：${note}`)
+  lines.push('')
+  lines.push('请接单：先用 collab_board_read 读取这块协作台（这条任务已经置为 doing）；完成一项验收就用 collab_task_upsert 的 doneChecks 勾掉；需要人拍板时用 collab_decision_ask 发卡（人的答案会自动回到这个会话）。')
+  return lines.join('\n')
+}
+
+function decisionReply(decision) {
+  return [
+    `【协作台 · 拍板结果】${decision.id} · ${decision.title}`,
+    typeof decision.detail === 'string' && decision.detail !== '' ? `问题背景：${decision.detail}` : '',
+    `人的拍板：${decision.answer}`,
+    '请按这个结果继续；后续需要新的决策就再发一张卡。',
+  ].filter((line) => line !== '').join('\n')
+}
+
+/* ------------------------------------------------------------------ */
 /* Operations (shared by tools and the Client RPC)                     */
 /* ------------------------------------------------------------------ */
 
@@ -274,9 +455,38 @@ async function answerDecision(input) {
     decision.status = 'answered'
     decision.answer = answer
     decision.answeredAt = nowIso()
+    // The answer stays durable on the board even when the asking session is
+    // gone; delivery is a best-effort convenience layered on top.
+    let delivery
+    if (typeof decision.sourceSessionId === 'string' && decision.sourceSessionId !== '') {
+      try {
+        delivery = deliverToSession(decision.sourceSessionId, decisionReply(decision), { mode: 'queue' })
+      } catch (error) {
+        delivery = deliveryFailure(decision.sourceSessionId, decision.sourceSessionTitle, error)
+      }
+      decision.delivery = delivery
+    }
     board.updatedAt = nowIso()
     await persist(board)
-    return { board }
+    return delivery === undefined ? { board } : { board, delivery }
+  })
+}
+
+async function deliverDecision(input) {
+  const id = text(input?.id, 'id', { required: true, max: 64 })
+  return serialize(async () => {
+    const board = await readBoard()
+    const decision = board.decisions.find((entry) => entry.id === id)
+    if (decision === undefined) throw new Error(`unknown decision ${id}`)
+    if (decision.status !== 'answered') throw new Error(`decision ${id} has no answer yet`)
+    if (typeof decision.sourceSessionId !== 'string' || decision.sourceSessionId === '') {
+      throw new Error(`decision ${id} has no source session to deliver to`)
+    }
+    const delivery = deliverToSession(decision.sourceSessionId, decisionReply(decision), { mode: 'queue' })
+    decision.delivery = delivery
+    board.updatedAt = nowIso()
+    await persist(board)
+    return { board, delivery }
   })
 }
 
@@ -413,7 +623,59 @@ async function upsertTask(input) {
   })
 }
 
-async function askDecision(input) {
+async function dispatchTask(input) {
+  const taskId = text(input?.taskId, 'taskId', { required: true, max: 64 })
+  const sessionId = text(input?.sessionId, 'sessionId', { required: true, max: 200 })
+  const note = text(input?.note, 'note', { max: 1000 }) ?? ''
+  const mode = input?.mode === 'steer' ? 'steer' : 'queue'
+  return serialize(async () => {
+    const board = await readBoard()
+    const task = board.tasks.find((entry) => entry.id === taskId)
+    if (task === undefined) throw new Error(`unknown task ${taskId}`)
+    const project = projectOf(board, task.projectId)
+    // Deliver before touching the board: a failed delivery must not claim the
+    // task is dispatched.
+    const delivery = deliverToSession(sessionId, dispatchPrompt(task, project, note), { mode })
+    task.status = 'doing'
+    task.dispatches = [...(Array.isArray(task.dispatches) ? task.dispatches : []).slice(-9), { ...delivery, note }]
+    task.updatedAt = nowIso()
+    project.currentTask = task.id
+    project.updatedAt = nowIso()
+    board.updatedAt = nowIso()
+    await persist(board)
+    return { board, task: { ...task }, delivery }
+  })
+}
+
+async function sendMessage(input) {
+  const sessionId = text(input?.sessionId, 'sessionId', { required: true, max: 200 })
+  const body = text(input?.text, 'text', { required: true, max: 4000 })
+  const taskId = text(input?.taskId, 'taskId', { max: 64 })
+  const mode = input?.mode === 'steer' ? 'steer' : 'queue'
+  return serialize(async () => {
+    const board = await readBoard()
+    const task = taskId === undefined ? undefined : board.tasks.find((entry) => entry.id === taskId)
+    if (taskId !== undefined && task === undefined) throw new Error(`unknown task ${taskId}`)
+    const bodyWithContext = task === undefined
+      ? `【协作台 · 传话】来自人：\n${body}`
+      : `【协作台 · 传话】关于任务 ${task.id} · ${task.title}\n来自人：\n${body}`
+    const delivery = deliverToSession(sessionId, bodyWithContext, { mode })
+    if (task !== undefined) {
+      task.messages = [...(Array.isArray(task.messages) ? task.messages : []).slice(-9), {
+        text: body,
+        at: delivery.at,
+        sessionId: delivery.sessionId,
+        sessionTitle: delivery.sessionTitle,
+      }]
+      task.updatedAt = nowIso()
+    }
+    board.updatedAt = nowIso()
+    await persist(board)
+    return { board, task: task === undefined ? undefined : { ...task }, delivery }
+  })
+}
+
+async function askDecision(input, source) {
   const title = text(input?.title, 'title', { required: true, max: 200 })
   const detail = text(input?.detail, 'detail', { max: 4000 }) ?? ''
   return serialize(async () => {
@@ -428,6 +690,10 @@ async function askDecision(input) {
       answer: '',
       createdAt: nowIso(),
       answeredAt: null,
+    }
+    if (typeof source?.sessionId === 'string' && source.sessionId !== '') {
+      decision.sourceSessionId = source.sessionId
+      decision.sourceSessionTitle = typeof source.sessionTitle === 'string' ? source.sessionTitle : ''
     }
     board.decisions.push(decision)
     board.updatedAt = nowIso()
@@ -501,7 +767,7 @@ function registerTools(ctx) {
 
   ctx.effect(() => ctx.tools.register({
     name: 'collab_decision_ask',
-    description: 'Post one 待拍板 card on the human collaboration board (协作台) when a decision blocks your work. The human answers it in the board page; read the answer back with collab_board_read. Use one card per decision and keep the title short.',
+    description: 'Post one 待拍板 card on the human collaboration board (协作台) when a decision blocks your work. The human answers it in the board page, and the answer is delivered back into the asking session automatically; it also stays readable with collab_board_read. Use one card per decision and keep the title short.',
     parameters: {
       type: 'object',
       properties: {
@@ -513,8 +779,13 @@ function registerTools(ctx) {
       additionalProperties: false,
     },
     output: boardOutput((_args, value) => [{ type: 'text', text: JSON.stringify(value?.decision ?? value, null, 2) }]),
-    async execute(args) {
-      return askDecision(args)
+    async execute(args, exec) {
+      // Remember who asked so the human's answer can be relayed back into the
+      // exact session that is blocked on it.
+      const sessionId = sessionIdOf(exec?.agent?.session)
+      return askDecision(args, sessionId === ''
+        ? undefined
+        : { sessionId, sessionTitle: agentLabel(exec.agent) })
     },
   }), 'team-board: collab_decision_ask')
 }
@@ -525,11 +796,15 @@ function registerTools(ctx) {
 
 const OPERATIONS = {
   state: () => getState(),
+  listSessions: () => listLiveSessions(),
   answerDecision,
   setTaskStatus,
   toggleCheck,
   createProject,
   upsertTask,
+  dispatchTask,
+  sendMessage,
+  deliverDecision,
 }
 
 function reply(rpcId, result) {
@@ -592,6 +867,7 @@ function registerRpc(ctx) {
 /* ------------------------------------------------------------------ */
 
 export function apply(ctx) {
+  runtime = ctx
   ctx.effect(() => {
     void readBoard().catch((error) => {
       ctx.logger?.warn?.('team-board: failed to prepare the board file', error)

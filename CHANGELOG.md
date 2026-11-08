@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
+### Added
+
+- **GO 派发**：任务卡上点 `GO`，选一个已打开的会话，Host 把任务 prompt 作为一条 user 消息投递给该会话的 live agent，任务自动转 `doing`，并在卡上记下派发目标与时间。新增 `listSessions` / `dispatchTask` RPC。
+- **人机传话**：页面新增「传话」框，可把人的一句话直接发进任意已打开的会话；新增 `sendMessage` RPC。
+- **拍板自动回投**：`collab_decision_ask` 记录提问会话；人提交拍板后，答案自动投回该会话并记录 `delivery`；未送达可重发（新增 `deliverDecision` RPC）。
+- 任务卡显示最近一次派发记录，拍板卡显示投递状态与会话；`dispatches` / `messages` 均只保留最近 10 条。
+- `verify-host` 新增假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，覆盖投递消息形状、失败不写板、掉线后重发与重启持久化（45 → 70 项）。
+
+### Changed
+
+- `collab_decision_ask` 的工具描述说明答案会自动回到提问会话。
+- 派发 / 传话的会话列表包含 Agent Teams 队友会话（用队友名标注），过滤临时 subagent 会话。
+- README 补充 GO 派发、传话、投递语义与 live 会话限制。
+- 版本号 0.2.0 → 0.3.0。
+
 ## [0.2.0] - 2026-11-06
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Collaboration Board",
-    "description": "A shared board for multi-agent work: decision cards the human answers, task cards with commander/executor/reviewer roles and acceptance checks, plus collab_board_read / collab_task_upsert / collab_decision_ask tools for agents."
+    "description": "A shared board for multi-agent work: GO dispatch pushes a task into a session, human messages and decision answers are relayed back into the asking session, task cards carry commander/executor/reviewer roles and acceptance checks, plus collab_board_read / collab_task_upsert / collab_decision_ask tools for agents."
   }
 }

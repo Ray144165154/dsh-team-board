@@ -2,11 +2,13 @@
 
 [![CI](https://github.com/Ray144165154/dsh-team-board/actions/workflows/ci.yml/badge.svg)](https://github.com/Ray144165154/dsh-team-board/actions/workflows/ci.yml)
 
-> 给多 agent 协作装一块人人能看懂的看板：**agent 登记任务、推进验收，人只负责拍板。**
+> 给多 agent 协作装一块人人能看懂的看板：**agent 登记任务、推进验收；人负责把任务派发出去、把决定拍下来。**
 
 这是一个 DeepSeek Harness（DSH，本地运行的桌面 agent 应用）插件，装好后侧边栏会多一个「协作台」入口：
 
-- **待拍板**：agent 卡住时抛出的问题卡片，由人填答案；agent 之后自己回读答案继续干活。
+- **GO 派发**：任务卡上点 `GO`，选一个已打开的会话，任务会被真的推给那个 agent——状态自动转 `doing`，并记下派发目标。
+- **人机传话**：拍板答案会自动发回提问的会话；页面底部的「传话」框可以把人的一句话直接发进指定 agent 的会话。
+- **待拍板**：agent 卡住时抛出的问题卡片，由人填答案；答案留在板上，同时投递给提问的会话。
 - **任务卡**：每条任务带 `指挥 / 执行 / 验收` 三个角色、状态胶囊、进度 `0/3` 和验收清单，验收项点一下就能勾。
 - **多项目**：顶部可切换项目、直接新建项目；任务也能在页面里建，不依赖 agent。
 - **三个工具**：`collab_board_read`、`collab_task_upsert`、`collab_decision_ask`，任何 agent 都能读写这块板。
@@ -16,10 +18,13 @@
 
 A DeepSeek Harness plugin that turns multi-agent collaboration into one shared board.
 Agents register tasks (commander / executor / reviewer, status, acceptance checks) and post
-decision cards; the human answers those cards and nothing else. Three tools expose the board
-to any agent; the human-only answer path stays out of the tool surface. Projects, tasks and
-acceptance checks are also editable from the page itself. State is a plain JSON file under
-`$DSH_HOME`. Host + Client halves, no build step, no dependencies.
+decision cards; the human answers those cards and nothing else. A task card's `GO` button
+pushes the task into a live agent session, decision answers are relayed back to the asking
+session automatically, and a compose box sends a free-text human message into any open
+session. Three tools expose the board to any agent; the human-only answer path stays out of
+the tool surface. Projects, tasks and acceptance checks are also editable from the page
+itself. State is a plain JSON file under `$DSH_HOME`. Host + Client halves, no build step,
+no dependencies.
 
 </details>
 
@@ -31,7 +36,9 @@ acceptance checks are also editable from the page itself. State is a plain JSON 
 
 | 麻烦 | 没有看板时 | 有了看板 |
 | --- | --- | --- |
-| 决策 | 人拍板的话淹没在某个会话里，别的 agent 看不到 | 拍板变成卡片，答案跟任务放在一起 |
+| 决策 | 人拍板的话淹没在某个会话里，别的 agent 看不到 | 拍板变成卡片，答案自动发回提问的会话，也留在板上 |
+| 调度 | 任务写完还得有人复制到 agent 会话里 | 任务卡上点 `GO`，选会话即派发 |
+| 回话 | 想补一句话得切到对应会话再打一遍 | 「传话」框直接发进指定会话 |
 | 状态 | 任务进行到哪一步要翻会话记录 | 任务卡上写着 `DOING`、`0/3`、验收清单 |
 | 角色 | 谁指挥、谁执行、谁验收说不清 | 卡上固定三个字段 |
 | 交接 | 换一个 agent / 新开会话，前面聊的等于没发生 | 新 agent 先 `collab_board_read` 就能接上 |
@@ -61,18 +68,29 @@ AHP 协作台                                        [ 刷新 ]
 4  AI 方案文字要不要提细菌量                              已定
    不动方案文字，只在分析区和报告里显示数字
    拍板结果：同意
+   ✓ 已传达 · 执行会话 · 21:04:12
 ──────────────────────────────────────────────────────────
 任务 2                                            [ 新建任务 ]
 
-T-078  后端：AI 分析后自动统计细菌计数，并提供读取接口   DOING
+T-078  后端：AI 分析后自动统计细菌计数，并提供读取接口   DOING  [ GO ]
        指挥 · claude    执行 · deepseek    验收 0/3
+       已派发 · 执行会话 · 21:05:30
        ○ 新测试全过：pytest 550 → 只增不减；ruff 0；…
        ○ git diff 只有 owns 里的文件；counting/** 0 改动
        ○ 读码：全仓只有 QuantityService.count_media 一处调用
 ──────────────────────────────────────────────────────────
+传话                                           [ 刷新会话 ]
+会话 [ 执行会话 · 空闲 ▾ ]
+┌──────────────────────────────────────────────────────┐
+│ 把一句话发进这个会话…                                 │
+└──────────────────────────────────────────────────────┘
+[ 发送 ]  已投递 · 执行会话 · 21:06:02
+──────────────────────────────────────────────────────────
 ```
 
-示意图里的 `○` 是可点的验收项。交互上一共六处：**填拍板并提交**、**点验收项**（`○ → ●`，进度自动重算）、**点状态胶囊**（`TODO → DOING → DONE`）、**切换 / 新建项目**、**新建任务**、**刷新**（页面也会每 6 秒自动轮询，切回窗口时立即刷新）。
+示意图里的 `○` 是可点的验收项，`GO` 用来把任务派发到某个已打开的会话。交互上一共八处：**填拍板并提交**、**点 `GO` 派发任务**、**底部传话**、**点验收项**（`○ → ●`，进度自动重算）、**点状态胶囊**（`TODO → DOING → DONE`）、**切换 / 新建项目**、**新建任务**、**刷新**（页面也会每 6 秒自动轮询，切回窗口时立即刷新）。
+
+派发和传话只会出现在「已打开（live）」的会话上：DSH 的会话要先被加载成 live agent，才能接收新消息。页面里的会话下拉会读出会话标题、运行 / 空闲状态；Agent Teams 的队友会话也会列出来（标记为「队友」），临时 subagent 会话则被过滤掉。切换会话后如果列表变了，点一下「刷新会话」。
 
 ## 工作流
 
@@ -85,11 +103,13 @@ sequenceDiagram
     participant E as 执行 agent
 
     C->>B: collab_task_upsert 建 T-078，写 3 条验收
-    E->>B: collab_task_upsert 状态改 doing、报进度
+    H->>B: 在任务卡上点 GO，选执行会话
+    B->>E: 把任务 prompt 投进 E 的会话（一条 user 消息）
+    E->>B: collab_board_read 接单，状态改 doing、报进度
     E->>B: collab_decision_ask 卡在「什么时候数」
     B-->>H: 页面出现一张「待定」卡
     H->>B: 填拍板，提交
-    E->>B: collab_board_read 读到答案，继续
+    B->>E: 答案自动投回 E 的会话
     E->>B: collab_task_upsert doneChecks 勾掉验收
 ```
 
@@ -97,7 +117,7 @@ sequenceDiagram
 
 - **指挥 / 执行** 通过工具写板；
 - **验收** 是卡上的字段，人可以点状态胶囊直接改；
-- **拍板只有人能回答**——`answerDecision` 只开在页面这条通道上，**没有对应的 agent 工具**，agent 只能回读已给的答案。这不是遗漏，是设计（见下方「设计取舍」）。
+- **拍板只有人能回答**——`answerDecision` 只开在页面这条通道上，**没有对应的 agent 工具**。但答案不再是「等 agent 自己想起来读」：提交时 Host 会把答案作为一条 user 消息投递给提问的会话，agent 下一轮就能看到。这是设计里的「最后一公里」，见下方「设计取舍」。
 
 ## 架构
 
@@ -105,16 +125,18 @@ sequenceDiagram
 flowchart LR
     A[agent 会话] -- 工具调用 --> H[Host：index.js]
     P[协作台页面] -- "POST /api/dsh-team-board" --> H
+    H -- "followup / steer（派发、传话、拍板结果）" --> A
     H -- 读 / 写 --> F[(board.json)]
 ```
 
-- **Host 半边**（`index.js`）：唯一的数据规则实现方。持久化、三个工具、一个很小的 RPC 路由。
+- **Host 半边**（`index.js`）：唯一的数据规则实现方。持久化、三个工具、RPC 路由，以及把人的动作投递进 live 会话的「最后一公里」。
 - **Client 半边**（`client.js`）：往 `sidebar.panellist` 注册图标、往 `main` 注册页面，用宿主主题变量画 UI。
 - 页面和工具走的是**同一批 Host 函数**，所以页面提交的拍板、agent 写的任务不会各算各的。
+- 投递走 DSH 的 `agents` 服务：`agents.get(sessionId)` 拿到 live agent，再用 `agent.followup(message)` 把消息放进它的收件箱（运行中的 agent 可选 `steer`）。投递成功只代表消息被收件箱接收，不代表 agent 已经处理。
 
 ## 快速开始
 
-**前提**：DSH Desktop（Web UI 的 profile），本插件在 **0.2.1-rc.5** 上开发验证，其它版本未测。
+**前提**：DSH Desktop（Web UI 的 profile），本插件在 **0.2.2-rc.1** 上开发验证，其它版本未测。升级到 v0.3 后需要重启一次 DSH（Host 半边的投递代码要重新加载）；只刷新页面不会换掉运行中的 Host。
 
 1. 把本仓库克隆到本地任意目录：
 
@@ -198,7 +220,7 @@ flowchart LR
 { "title": "什么时候数", "detail": "**AI 分析完成后自动数**，跟在分析任务里，不加按钮" }
 ```
 
-`detail` 支持 `**加粗**`。发出后等人回答，agent 用 `collab_board_read` 回读。
+`detail` 支持 `**加粗**`。工具会记下调用它的会话；人提交拍板后，Host 把答案作为一条 user 消息**自动投回那个会话**（`decision.sourceSessionId` / `decision.delivery` 可在板上看到）。agent 仍然可以用 `collab_board_read` 回读，但不需要靠轮询才能知道答案。
 
 ## 页面 RPC
 
@@ -207,11 +229,17 @@ flowchart LR
 | 方法 | 载荷 | 返回 | 谁用 |
 | --- | --- | --- | --- |
 | `state` | `{}` | `{ board }` | 页面轮询 |
-| `answerDecision` | `{ id, answer }` | `{ board }` | 页面（**只有人**） |
+| `listSessions` | `{}` | `{ sessions: [{ id, title, cwd, status, kind, createdAt, events }] }` | 页面：派发 / 传话的会话下拉 |
+| `answerDecision` | `{ id, answer }` | `{ board, delivery? }` | 页面（**只有人**）；有提问会话时自动投递答案 |
+| `deliverDecision` | `{ id }` | `{ board, delivery }` | 页面：未送达时重发 |
 | `setTaskStatus` | `{ id, status }` | `{ board }` | 页面 |
 | `toggleCheck` | `{ taskId, index, ok? }` | `{ board }` | 页面；省略 `ok` 则翻转，并按勾选结果重算 `progress` |
 | `createProject` | `{ name, goal? }` | `{ board, project }` | 页面 / 新建项目 |
 | `upsertTask` | 同 `collab_task_upsert` | `{ board, task }` | 页面 / 新建任务 |
+| `dispatchTask` | `{ taskId, sessionId, note?, mode? }` | `{ board, task, delivery }` | 页面 `GO`：把任务 prompt 投进会话，任务转 `doing` |
+| `sendMessage` | `{ sessionId, text, taskId?, mode? }` | `{ board, task?, delivery }` | 页面「传话」：把人的一句话投进会话 |
+
+`mode` 默认 `queue`（agent 下一轮处理）；传 `steer` 时，若 agent 正在运行，会在最近的步骤边界插入。`delivery` 形如 `{ status: "sent" | "failed", sessionId, sessionTitle, mode, at, error? }`。
 
 ## 数据
 
@@ -222,15 +250,23 @@ flowchart LR
   "version": 1,
   "updatedAt": "2026-11-04T08:08:10.518Z",
   "projects": [{ "id": "P-1", "name": "AHP 协作台", "goal": "…", "currentTask": "T-078" }],
-  "decisions": [{ "id": "D-1", "title": "什么时候数", "status": "open", "answer": "" }],
+  "decisions": [{
+    "id": "D-1", "title": "什么时候数", "status": "answered", "answer": "分析完成后自动数",
+    "sourceSessionId": "session-…", "sourceSessionTitle": "执行会话",
+    "delivery": { "status": "sent", "sessionId": "session-…", "sessionTitle": "执行会话", "mode": "queue", "at": "2026-11-04T08:20:00.000Z" }
+  }],
   "tasks": [{
     "id": "T-078", "title": "后端：…", "status": "doing",
     "commander": "claude", "executor": "deepseek", "reviewer": "human",
     "progress": { "passed": 0, "total": 3 },
-    "checks": [{ "label": "新测试全过", "ok": false }]
+    "checks": [{ "label": "新测试全过", "ok": false }],
+    "dispatches": [{ "status": "sent", "sessionId": "session-…", "sessionTitle": "执行会话", "mode": "queue", "at": "…", "note": "先跑测试" }],
+    "messages": [{ "text": "先别动前端", "at": "…", "sessionId": "session-…", "sessionTitle": "执行会话" }]
   }]
 }
 ```
+
+`dispatches` 只保留最近 10 条，`messages` 也只保留最近 10 条，避免单卡无限增长。旧版 `board.json` 没有这些字段也能直接读，页面按「无派发 / 无投递」渲染。
 
 写入走 `临时文件 + rename`，并且所有变更串行化；文件损坏时会先备份成 `board.json.corrupt-<时间戳>.json` 再重建，不会直接清空。
 
@@ -240,7 +276,10 @@ flowchart LR
 - **数据是插件的，不是会话日志的一部分。** 好处是跨会话、跨 agent 共享；代价是 fork/恢复某个会话不会带着板的历史。
 - **不做数据库。** 单文件 JSON 在「一个人 + 几个 agent」的规模下够用，坏了也能手改。要多人并发再换存储。
 - **轮询而不是推送。** 6 秒轮询一行代码，不需要维护 SSE 连接和重连；页面上的改动频率本来就不高。
-- **零依赖、无构建。** 两个纯 JS 文件 + 清单，装完即用，升级不会因为依赖漂移挂掉。
+- **只投递给 live 会话。** 派发 / 传话要求目标会话已经在 DSH 里打开成 live agent；关闭的持久会话不能凭空接收消息。这样 v0.3 不需要自己造会话、选模型、建目录，失败时也能给出明确原因。想派发给冷会话，先在侧边栏打开它。
+- **投递是「收件箱接收」，不是「已处理」。** `followup` 返回只代表消息进了 agent 的 inbox；页面上写「已投递」而不是「已完成」。真正的完成状态仍然看任务卡和验收清单。
+- **答案既投递又留档。** 拍板结果会进会话，但不会从板上消失；会话没开 / 投递失败时，答案照样保存，页面提供「重发」。
+- **零依赖、无构建。** 两个纯 JS 文件 + 清单，装完即用，升级不会因为依赖漂移挂掉。投递只调用 Host 注入的 `agents` / `sessions` / `sessionTitle` 服务，不 import 任何 DSH 包。
 
 ## 已知限制
 
@@ -249,11 +288,17 @@ flowchart LR
 - 没有删除/归档：项目和任务只能新增与修改，不能删。
 - 没有推送：另一个 tab 改了，本 tab 最多晚 6 秒（轮询）。
 - 多项目只是切换展示：目标卡、待拍板、任务都按当前选中的项目过滤；顶部「待拍板 N」是全局计数。
+- 只能投递给已打开的会话：冷会话要先在侧边栏打开；v0.3 不会替你新建会话或切换目录。
+- v0.3 之前创建的待拍板卡没有记录提问会话，回答只留档、不会自动回投；升级后新发的卡才带来源。
+- 会话列表是打开面板时读一次：新开的会话要手动点「刷新会话」（切回窗口也会自动刷新）。
+- 投递失败不会重试队列：拍板有「重发」，任务派发 / 传话失败后重新点一次即可。
+- 投递没有幂等键：同一句话点两次会进两次会话（按钮在请求期间会禁用，正常操作不会触发）。
 
 ## 路线图
 
-- [ ] **GO 派发**：点一下把任务真的推给某个会话 / agent（从「记录」变「调度」）
-- [ ] 人机传话：把人的一句话直接发进指定 agent 的会话
+- [x] **GO 派发**：点一下把任务真的推给某个会话 / agent（v0.3）
+- [x] 人机传话：把人的一句话直接发进指定 agent 的会话，拍板答案自动回投（v0.3）
+- [ ] 派发时新建会话（选目录 / 选模型）
 - [ ] tokens / 工具调用数统计到任务卡
 - [x] 验收项逐条点击勾选（v0.2）
 - [x] 多项目切换与新建（v0.2）
@@ -263,11 +308,11 @@ flowchart LR
 ## 开发与验证
 
 ```bash
-node test/verify-host.mjs    # 45 项 Host 行为检查
-node test/check-client.mjs   # 静态契约检查（无浏览器、无 React）
+node test/verify-host.mjs    # 70 项 Host 行为检查
+node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
 ```
 
-`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。两个脚本都不会碰你真实的 board 文件，CI 里也会跑（`.github/workflows/ci.yml`）。
+`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。两个脚本都不会碰你真实的 board 文件，CI 里也会跑（`.github/workflows/ci.yml`）。
 
 > 页面视觉没有在自动化里核对（无浏览器控制），仓库内的界面示意是结构草图，不是截图。
 
@@ -275,13 +320,13 @@ node test/check-client.mjs   # 静态契约检查（无浏览器、无 React）
 
 ```
 .
-├── index.js                 # Host：存储 + 三个工具 + 6 个 RPC 方法
-├── client.js                # Client：侧边栏图标 + 协作台页面
+├── index.js                 # Host：存储 + 三个工具 + 10 个 RPC 方法 + 会话投递
+├── client.js                # Client：侧边栏图标 + 协作台页面（GO 派发 / 传话 / 投递状态）
 ├── package.json             # bundle 清单（dsh.bundle / dsh.client）
 ├── cordis.patch.yml         # 把插件插入 profile 的 patch
 ├── locale/{zh,en}.json      # 插件页显示的名称与描述
 ├── icon.svg                 # 插件图标
-├── test/verify-host.mjs     # Host 行为回归（45 项）
+├── test/verify-host.mjs     # Host 行为回归（70 项）
 ├── test/check-client.mjs    # Client 静态契约检查
 ├── .github/workflows/ci.yml # CI：push / PR 跑两条检查
 ├── CHANGELOG.md

@@ -14,11 +14,15 @@ const source = await readFile(file, 'utf8')
 
 const RPC_METHODS = new Set([
   'state',
+  'listSessions',
   'answerDecision',
   'setTaskStatus',
   'toggleCheck',
   'createProject',
   'upsertTask',
+  'dispatchTask',
+  'sendMessage',
+  'deliverDecision',
 ])
 
 let failures = 0

@@ -58,6 +58,42 @@ window.__ModuleLoader__.load({
       'action.cancel': '取消',
       'action.submitting': '创建中…',
       'empty.board': '协作台还没有内容。',
+      'task.go': 'GO',
+      'task.goTitle': '把这条任务派发到某个会话',
+      'dispatch.title': '派发',
+      'dispatch.loading': '正在读取会话…',
+      'dispatch.empty': '没有可派发的会话。先在侧边栏打开目标会话，再回来派发。',
+      'dispatch.choose': '选择会话',
+      'dispatch.target': '目标会话',
+      'dispatch.note': '补充说明（可选）',
+      'dispatch.submit': '派发',
+      'dispatch.submitting': '派发中…',
+      'dispatch.recorded': '已派发',
+      'dispatch.failed': '派发失败',
+      'delivery.sent': '已传达',
+      'delivery.failed': '未传达',
+      'delivery.missing': '还没有投递',
+      'delivery.retry': '重发',
+      'delivery.sending': '重发中…',
+      'delivery.note': '拍板结果会自动发回提问的会话；agent 会在下一轮读到它。',
+      'compose.title': '传话',
+      'compose.description': '把一句话直接发进已打开的 agent 会话；对方会在下一轮读到。',
+      'compose.target': '会话',
+      'compose.placeholder': '把一句话发进这个会话…',
+      'compose.send': '发送',
+      'compose.sending': '发送中…',
+      'compose.sent': '已投递',
+      'compose.empty': '没有已打开的会话。打开一个会话后就能传话。',
+      'compose.reload': '刷新会话',
+      'session.untitled': '未命名会话',
+      'session.running': '运行中',
+      'session.idle': '空闲',
+      'session.teammate': '队友',
+      'session.unavailable': '当前 DSH profile 没有提供会话服务，派发 / 传话不可用。',
+      'error.dispatch': '派发失败：',
+      'error.sessions': '读取会话失败：',
+      'error.compose': '传话失败：',
+      'error.delivery': '重发失败：',
     }
 
     const en = {
@@ -103,6 +139,42 @@ window.__ModuleLoader__.load({
       'action.cancel': 'Cancel',
       'action.submitting': 'Creating…',
       'empty.board': 'The board is empty.',
+      'task.go': 'GO',
+      'task.goTitle': 'Dispatch this task to a session',
+      'dispatch.title': 'Dispatch',
+      'dispatch.loading': 'Reading sessions…',
+      'dispatch.empty': 'No session to dispatch to. Open the target session in the sidebar first.',
+      'dispatch.choose': 'Choose a session',
+      'dispatch.target': 'Target session',
+      'dispatch.note': 'Extra instruction (optional)',
+      'dispatch.submit': 'Dispatch',
+      'dispatch.submitting': 'Dispatching…',
+      'dispatch.recorded': 'Dispatched',
+      'dispatch.failed': 'Dispatch failed',
+      'delivery.sent': 'Delivered',
+      'delivery.failed': 'Not delivered',
+      'delivery.missing': 'not sent yet',
+      'delivery.retry': 'Resend',
+      'delivery.sending': 'Resending…',
+      'delivery.note': 'Answers are sent back to the asking session automatically; the agent reads them on its next turn.',
+      'compose.title': 'Message',
+      'compose.description': 'Send one message straight into an open agent session; it reads it on the next turn.',
+      'compose.target': 'Session',
+      'compose.placeholder': 'Send one message into this session…',
+      'compose.send': 'Send',
+      'compose.sending': 'Sending…',
+      'compose.sent': 'Delivered',
+      'compose.empty': 'No open session. Open one to send a message.',
+      'compose.reload': 'Reload sessions',
+      'session.untitled': 'Untitled session',
+      'session.running': 'running',
+      'session.idle': 'idle',
+      'session.teammate': 'teammate',
+      'session.unavailable': 'This DSH profile provides no session service, so dispatch and messaging are unavailable.',
+      'error.dispatch': 'Could not dispatch: ',
+      'error.sessions': 'Could not read sessions: ',
+      'error.compose': 'Could not send the message: ',
+      'error.delivery': 'Could not resend the decision: ',
     }
 
     /* ---------------------------------------------------------------- */
@@ -165,7 +237,7 @@ window.__ModuleLoader__.load({
 .tb-task { margin-bottom: 10px; padding: 14px 16px 16px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
 .tb-taskHead { display: flex; align-items: center; gap: 8px; }
 .tb-taskId { flex: none; color: var(--dsw-alias-label-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-.tb-taskTitle { margin: 0; flex: 1 1 auto; font-size: 14px; line-height: 22px; font-weight: 600; }
+.tb-taskTitle { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 14px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; }
 .tb-status { flex: none; padding: 1px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); background: transparent; font: inherit; font-size: 11px; line-height: 18px; letter-spacing: .3px; cursor: pointer; }
 .tb-status[data-status="doing"] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
 .tb-status[data-status="done"] { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
@@ -181,10 +253,34 @@ window.__ModuleLoader__.load({
 .tb-checks li[data-ok="true"] .tb-checkMark { color: var(--dsw-alias-state-success-primary); }
 .tb-note { margin: 8px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; white-space: pre-wrap; }
 
+.tb-go { flex: none; min-height: 26px; padding: 2px 10px; border: 1px solid var(--dsw-alias-brand-primary); border-radius: 999px; color: var(--dsw-alias-brand-primary); background: transparent; font: inherit; font-size: 11px; line-height: 18px; font-weight: 600; letter-spacing: .5px; cursor: pointer; }
+.tb-go:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-2); }
+.tb-go:disabled { opacity: .45; cursor: default; }
+.tb-go:focus-visible, .tb-subpanel .tb-primary:focus-visible, .tb-subpanel .tb-secondary:focus-visible, .tb-subpanel .tb-select:focus-visible, .tb-composeForm .tb-input:focus-visible, .tb-composeForm .tb-primary:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+
+.tb-subpanel { margin-top: 10px; padding: 10px 12px 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-base); }
+.tb-subpanelHead { margin: 0 0 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.tb-panelRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tb-panelRow .tb-field { min-width: 0; max-width: 100%; }
+.tb-panelRow .tb-select, .tb-composeForm .tb-select { max-width: min(100%, 320px); }
+.tb-panelRow .tb-input { flex: 1 1 240px; min-height: 32px; padding: 5px 10px; }
+.tb-hint { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 12.5px; line-height: 20px; }
+.tb-delivery { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+.tb-delivery[data-status="sent"] { color: var(--dsw-alias-state-success-primary); }
+.tb-delivery[data-status="failed"] { color: var(--dsw-alias-state-error-primary); }
+.tb-delivery .tb-secondary { min-height: 26px; padding: 2px 10px; font-size: 11.5px; }
+.tb-deliveryText { min-width: 0; }
+.tb-compose { margin-top: 26px; padding: 14px 16px 16px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
+.tb-composeHead { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+.tb-composeForm { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 10px; }
+.tb-composeForm .tb-input { flex: 1 1 280px; min-height: 38px; }
+.tb-composeStatus { margin: 8px 0 0; color: var(--dsw-alias-state-success-primary); font-size: 12px; line-height: 18px; }
+.tb-composeStatus[data-tone="error"] { color: var(--dsw-alias-state-error-primary); }
+
 .tb-empty { padding: 18px; border: 1px dashed var(--dsw-alias-border-l2); border-radius: 12px; color: var(--dsw-alias-label-secondary); font-size: 13px; line-height: 20px; }
 .tb-error { margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--dsw-alias-state-error-primary); border-radius: 8px; color: var(--dsw-alias-state-error-primary); font-size: 12.5px; line-height: 19px; }
 .tb-foot { margin-top: 22px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; }
-@media (pointer: coarse) { .tb-primary, .tb-refresh, .tb-secondary, .tb-select, .tb-check { min-height: 44px; } }
+@media (pointer: coarse) { .tb-primary, .tb-refresh, .tb-secondary, .tb-select, .tb-check { min-height: 44px; } .tb-go { min-height: 34px; } }
 `
 
     /* ---------------------------------------------------------------- */
@@ -201,6 +297,122 @@ window.__ModuleLoader__.load({
       return h('p', { className: 'tb-empty' }, message)
     }
 
+    function clockOf(value) {
+      if (typeof value !== 'string' || value === '') return ''
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) return ''
+      return date.toLocaleTimeString()
+    }
+
+    function sessionLabel(session, t) {
+      const title = typeof session?.title === 'string' ? session.title.trim() : ''
+      return title !== '' ? title : t('session.untitled')
+    }
+
+    function sessionOptionLabel(session, t) {
+      const status = session?.status === 'running' ? t('session.running') : t('session.idle')
+      const shortId = typeof session?.id === 'string' && session.id !== '' ? ` · ${session.id.slice(-6)}` : ''
+      const kind = session?.kind === 'teammate' ? ` · ${t('session.teammate')}` : ''
+      return `${sessionLabel(session, t)}${shortId}${kind} · ${status}`
+    }
+
+    function DispatchPanel({ task, sessions, target, note, busy, error, onChangeTarget, onChangeNote, onSubmit, onCancel, t }) {
+      const items = Array.isArray(sessions?.items) ? sessions.items : []
+      const ready = sessions?.phase === 'ready' && sessions?.unavailable !== true && items.length > 0
+      return h('div', { className: 'tb-subpanel', 'data-dispatch': task.id },
+        h('p', { className: 'tb-subpanelHead' }, `${t('dispatch.title')} · ${task.id}`),
+        sessions?.phase === 'loading' ? h('p', { className: 'tb-hint' }, t('dispatch.loading')) : null,
+        sessions?.phase === 'error' ? h('p', { className: 'tb-error', role: 'alert' }, `${t('error.sessions')}${sessions.error}`) : null,
+        sessions?.phase === 'ready' && sessions?.unavailable === true ? h('p', { className: 'tb-hint' }, t('session.unavailable')) : null,
+        sessions?.phase === 'ready' && sessions?.unavailable !== true && items.length === 0 ? h('p', { className: 'tb-hint' }, t('dispatch.empty')) : null,
+        ready
+          ? h('div', { className: 'tb-panelRow' },
+            h('label', { className: 'tb-field' },
+              h('span', { className: 'tb-label' }, t('dispatch.target')),
+              h('select', {
+                className: 'tb-select',
+                value: target ?? '',
+                onChange: (event) => onChangeTarget(event.target.value),
+              },
+              (target ?? '') === '' ? h('option', { value: '' }, t('dispatch.choose')) : null,
+              items.map((session) => h('option', { key: session.id, value: session.id }, sessionOptionLabel(session, t))))),
+            h('input', {
+              type: 'text',
+              className: 'tb-input',
+              value: note ?? '',
+              placeholder: t('dispatch.note'),
+              'aria-label': t('dispatch.note'),
+              onChange: (event) => onChangeNote(event.target.value),
+            }),
+            h('button', {
+              type: 'button',
+              className: 'tb-primary',
+              disabled: busy || (target ?? '') === '',
+              onClick: onSubmit,
+            }, busy ? t('dispatch.submitting') : t('dispatch.submit')),
+            h('button', {
+              type: 'button',
+              className: 'tb-secondary',
+              disabled: busy,
+              onClick: onCancel,
+            }, t('action.cancel')))
+          : h('div', { className: 'tb-panelRow' },
+            h('button', {
+              type: 'button',
+              className: 'tb-secondary',
+              disabled: busy,
+              onClick: onCancel,
+            }, t('action.cancel'))),
+        error === null || error === undefined
+          ? null
+          : h('p', { className: 'tb-error', role: 'alert' }, `${t('error.dispatch')}${error}`))
+    }
+
+    function ComposePanel({ sessions, target, text, busy, status, onChangeTarget, onChangeText, onSend, onReload, t }) {
+      const items = Array.isArray(sessions?.items) ? sessions.items : []
+      return h('section', { className: 'tb-compose' },
+        h('div', { className: 'tb-composeHead' },
+          h('h2', { className: 'tb-sectionTitle' }, t('compose.title')),
+          h('span', { className: 'tb-spacer' }),
+          h('button', {
+            type: 'button',
+            className: 'tb-secondary',
+            onClick: onReload,
+          }, t('compose.reload'))),
+        h('p', { className: 'tb-hint' }, t('compose.description')),
+        sessions?.phase === 'error' ? h('p', { className: 'tb-error', role: 'alert' }, `${t('error.sessions')}${sessions.error}`) : null,
+        sessions?.phase === 'ready' && sessions?.unavailable === true ? h('p', { className: 'tb-hint' }, t('session.unavailable')) : null,
+        sessions?.phase === 'ready' && sessions?.unavailable !== true && items.length === 0 ? h('p', { className: 'tb-hint' }, t('compose.empty')) : null,
+        sessions?.unavailable === true || items.length === 0
+          ? null
+          : h('div', { className: 'tb-composeForm' },
+            h('select', {
+              className: 'tb-select',
+              value: target ?? '',
+              'aria-label': t('compose.target'),
+              onChange: (event) => onChangeTarget(event.target.value),
+            },
+            (target ?? '') === '' ? h('option', { value: '' }, t('dispatch.choose')) : null,
+            items.map((session) => h('option', { key: session.id, value: session.id }, sessionOptionLabel(session, t)))),
+            h('textarea', {
+              className: 'tb-input',
+              rows: 2,
+              value: text ?? '',
+              placeholder: t('compose.placeholder'),
+              'aria-label': t('compose.placeholder'),
+              onChange: (event) => onChangeText(event.target.value),
+            }),
+            h('button', {
+              type: 'button',
+              className: 'tb-primary',
+              disabled: busy || (target ?? '') === '' || (text ?? '').trim() === '',
+              onClick: onSend,
+            }, busy ? t('compose.sending') : t('compose.send'))),
+        status === null || status === undefined
+          ? null
+          : h('p', { className: 'tb-composeStatus', 'data-tone': status.tone, role: 'status' }, status.message))
+    }
+
     function BoardGlyph({ size, active }) {
       const px = typeof size === 'number' && size > 0 ? size : 20
       const stroke = active ? 'var(--dsw-alias-brand-primary)' : 'currentColor'
@@ -215,8 +427,14 @@ window.__ModuleLoader__.load({
       h('rect', { x: 11.6, y: 13.3, width: 4.4, height: 1.5, rx: 0.75, fill: stroke, opacity: 0.45 }))
     }
 
-    function DecisionCard({ decision, index, draft, submitting, onDraft, onSubmit, t }) {
+    function DecisionCard({ decision, index, draft, submitting, onDraft, onSubmit, retryBusy, onRetry, t }) {
       const answered = decision.status === 'answered'
+      const delivery = decision.delivery ?? null
+      const hasSource = typeof decision.sourceSessionId === 'string' && decision.sourceSessionId !== ''
+      const delivered = delivery?.status === 'sent'
+      const deliveryLabel = delivered
+        ? `${t('delivery.sent')} · ${delivery.sessionTitle || decision.sourceSessionTitle || t('session.untitled')}${clockOf(delivery.at) === '' ? '' : ` · ${clockOf(delivery.at)}`}`
+        : `${t('delivery.failed')}：${delivery?.error ?? t('delivery.missing')}`
       return h('article', { className: 'tb-card', 'data-decision': decision.id },
         h('div', { className: 'tb-cardHead' },
           h('span', { className: 'tb-cardIndex' }, String(index + 1)),
@@ -227,7 +445,19 @@ window.__ModuleLoader__.load({
         answered
           ? h('div', { className: 'tb-answer' },
             h('span', { className: 'tb-label' }, t('decision.answer')),
-            h('p', null, decision.answer))
+            h('p', null, decision.answer),
+            hasSource
+              ? h('div', { className: 'tb-delivery', 'data-status': delivered ? 'sent' : 'failed' },
+                h('span', { className: 'tb-deliveryText' }, deliveryLabel),
+                delivered
+                  ? null
+                  : h('button', {
+                    type: 'button',
+                    className: 'tb-secondary',
+                    disabled: retryBusy,
+                    onClick: () => onRetry(decision.id),
+                  }, retryBusy ? t('delivery.sending') : t('delivery.retry')))
+              : null)
           : h('div', { className: 'tb-form' },
             h('textarea', {
               className: 'tb-input',
@@ -245,7 +475,7 @@ window.__ModuleLoader__.load({
             }, submitting ? t('decision.submitting') : t('decision.submit'))))
     }
 
-    function TaskCard({ task, onCycle, onToggleCheck, busyCheck, t }) {
+    function TaskCard({ task, dispatch, sessions, onCycle, onToggleCheck, busyCheck, onOpenDispatch, onDispatchClose, onDispatchTarget, onDispatchNote, onDispatchSubmit, t }) {
       const checks = Array.isArray(task.checks) ? task.checks : []
       const progress = task.progress ?? { passed: 0, total: 0 }
       const meta = [
@@ -253,6 +483,11 @@ window.__ModuleLoader__.load({
         [t('roles.executor'), task.executor],
         [t('roles.reviewer'), `${progress.passed ?? 0}/${progress.total ?? 0}`],
       ].filter(([, value]) => typeof value === 'string' && value !== '')
+      const dispatches = Array.isArray(task.dispatches) ? task.dispatches : []
+      const lastDispatch = dispatches.length === 0 ? null : dispatches[dispatches.length - 1]
+      const dispatchLabel = lastDispatch === null
+        ? ''
+        : `${t('dispatch.recorded')} · ${lastDispatch.sessionTitle || t('session.untitled')}${clockOf(lastDispatch.at) === '' ? '' : ` · ${clockOf(lastDispatch.at)}`}`
       return h('article', { className: 'tb-task', 'data-task': task.id },
         h('div', { className: 'tb-taskHead' },
           h('span', { className: 'tb-taskId' }, task.id),
@@ -264,9 +499,21 @@ window.__ModuleLoader__.load({
             title: t('task.toggle'),
             'aria-label': `${t('task.toggle')} · ${STATUS_TEXT[task.status] ?? String(task.status ?? 'TODO')}`,
             onClick: () => onCycle(task),
-          }, STATUS_TEXT[task.status] ?? String(task.status ?? 'TODO'))),
+          }, STATUS_TEXT[task.status] ?? String(task.status ?? 'TODO')),
+          h('button', {
+            type: 'button',
+            className: 'tb-go',
+            title: t('task.goTitle'),
+            'aria-label': `${t('task.goTitle')} · ${task.id}`,
+            disabled: dispatch !== null && dispatch !== undefined && dispatch.busy === true,
+            onClick: () => onOpenDispatch(task),
+          }, t('task.go'))),
         meta.length === 0 ? null : h('div', { className: 'tb-meta' },
           meta.map(([label, value]) => h('span', { key: label }, `${label} · ${value}`))),
+        lastDispatch === null
+          ? null
+          : h('p', { className: 'tb-delivery', 'data-status': lastDispatch.status === 'sent' ? 'sent' : 'failed' },
+            h('span', { className: 'tb-deliveryText' }, dispatchLabel)),
         checks.length === 0
           ? h('p', { className: 'tb-meta' }, t('task.emptyChecks'))
           : h('ul', { className: 'tb-checks' }, checks.map((check, index) => {
@@ -286,7 +533,22 @@ window.__ModuleLoader__.load({
             h('span', { className: 'tb-checkMark', 'aria-hidden': true }, check.ok === true ? '●' : '○'),
             h('span', { className: 'tb-checkLabel' }, check.label)))
           })),
-        typeof task.note === 'string' && task.note !== '' ? h('p', { className: 'tb-note' }, task.note) : null)
+        typeof task.note === 'string' && task.note !== '' ? h('p', { className: 'tb-note' }, task.note) : null,
+        dispatch === null || dispatch === undefined
+          ? null
+          : h(DispatchPanel, {
+            task,
+            sessions,
+            target: dispatch.target,
+            note: dispatch.note,
+            busy: dispatch.busy,
+            error: dispatch.error,
+            onChangeTarget: onDispatchTarget,
+            onChangeNote: onDispatchNote,
+            onSubmit: onDispatchSubmit,
+            onCancel: onDispatchClose,
+            t,
+          }))
     }
 
     function TeamBoardPage(props) {
@@ -305,6 +567,10 @@ window.__ModuleLoader__.load({
       const [taskFormOpen, setTaskFormOpen] = React.useState(false)
       const [taskTitle, setTaskTitle] = React.useState('')
       const [taskBusy, setTaskBusy] = React.useState(false)
+      const [sessionsState, setSessionsState] = React.useState({ phase: 'idle', items: [], error: null })
+      const [dispatch, setDispatch] = React.useState(null)
+      const [compose, setCompose] = React.useState({ target: '', text: '', busy: false, status: null })
+      const [retry, setRetry] = React.useState({ id: '', busy: false })
       const live = React.useRef(true)
       const busy = React.useRef(false)
 
@@ -328,18 +594,40 @@ window.__ModuleLoader__.load({
         }
       }, [call])
 
+      const loadSessions = React.useCallback(async () => {
+        setSessionsState((previous) => (previous.phase === 'loading' ? previous : { ...previous, phase: 'loading', error: null }))
+        try {
+          const value = await call('listSessions', {})
+          if (!live.current) return
+          setSessionsState({
+            phase: 'ready',
+            items: Array.isArray(value?.sessions) ? value.sessions : [],
+            unavailable: value?.unavailable === true,
+            error: null,
+          })
+        } catch (error) {
+          if (!live.current) return
+          setSessionsState((previous) => ({
+            phase: 'error',
+            items: previous.items ?? [],
+            error: error?.message ?? String(error),
+          }))
+        }
+      }, [call])
+
       React.useEffect(() => {
         live.current = true
         load()
+        void loadSessions()
         const timer = window.setInterval(() => { void load() }, POLL_MS)
-        const onFocus = () => { void load() }
+        const onFocus = () => { void load(); void loadSessions() }
         window.addEventListener('focus', onFocus)
         return () => {
           live.current = false
           window.clearInterval(timer)
           window.removeEventListener('focus', onFocus)
         }
-      }, [load])
+      }, [load, loadSessions])
 
       React.useEffect(() => {
         if (selectedProjectId !== null) return
@@ -347,6 +635,13 @@ window.__ModuleLoader__.load({
         const seed = list.find((entry) => entry.status === 'active') ?? list[0]
         if (seed !== undefined) setSelectedProjectId(seed.id)
       }, [selectedProjectId, snapshot.board])
+
+      React.useEffect(() => {
+        if (sessionsState.phase !== 'ready' || sessionsState.items.length !== 1) return
+        const only = sessionsState.items[0].id
+        setCompose((previous) => (previous.target === '' ? { ...previous, target: only } : previous))
+        setDispatch((previous) => (previous === null || previous.target !== '' ? previous : { ...previous, target: only }))
+      }, [sessionsState])
 
       const refresh = async () => {
         setRefreshing(true)
@@ -446,6 +741,100 @@ window.__ModuleLoader__.load({
           if (live.current) setTaskBusy(false)
         }
       }
+
+      const openDispatch = (task) => {
+        const items = sessionsState.phase === 'ready' ? sessionsState.items : []
+        const previous = Array.isArray(task.dispatches) && task.dispatches.length > 0
+          ? task.dispatches[task.dispatches.length - 1].sessionId
+          : ''
+        const reopen = items.some((session) => session.id === previous) ? previous : ''
+        const only = reopen !== '' ? reopen : (items.length === 1 ? items[0].id : '')
+        setDispatch({ taskId: task.id, target: only, note: '', busy: false, error: null })
+        setNotice(null)
+        void loadSessions()
+      }
+
+      const closeDispatch = () => setDispatch(null)
+
+      const changeDispatchTarget = (value) => {
+        setDispatch((previous) => (previous === null ? previous : { ...previous, target: value }))
+      }
+
+      const changeDispatchNote = (value) => {
+        setDispatch((previous) => (previous === null ? previous : { ...previous, note: value }))
+      }
+
+      const submitDispatch = async () => {
+        if (dispatch === null || dispatch.busy) return
+        const sessionId = dispatch.target.trim()
+        if (sessionId === '') return
+        setDispatch((previous) => (previous === null ? previous : { ...previous, busy: true, error: null }))
+        setNotice(null)
+        try {
+          const value = await call('dispatchTask', {
+            taskId: dispatch.taskId,
+            sessionId,
+            note: dispatch.note.trim(),
+          })
+          if (!live.current) return
+          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          setDispatch(null)
+        } catch (error) {
+          if (live.current) {
+            setDispatch((previous) => (previous === null ? previous : { ...previous, busy: false, error: error?.message ?? String(error) }))
+          }
+        }
+      }
+
+      const retryDecision = async (id) => {
+        if (retry.busy) return
+        setRetry({ id, busy: true })
+        setNotice(null)
+        try {
+          const value = await call('deliverDecision', { id })
+          if (!live.current) return
+          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+        } catch (error) {
+          if (live.current) setNotice({ tone: 'error', message: `${t('error.delivery')}${error?.message ?? error}` })
+        } finally {
+          if (live.current) setRetry({ id: '', busy: false })
+        }
+      }
+
+      const sendCompose = async () => {
+        const sessionId = compose.target.trim()
+        const body = compose.text.trim()
+        if (sessionId === '' || body === '' || compose.busy) return
+        setCompose((previous) => ({ ...previous, busy: true, status: null }))
+        setNotice(null)
+        try {
+          const value = await call('sendMessage', { sessionId, text: body })
+          if (!live.current) return
+          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          const delivery = value?.delivery
+          const label = delivery?.sessionTitle || t('session.untitled')
+          const time = clockOf(delivery?.at)
+          setCompose((previous) => ({
+            ...previous,
+            text: '',
+            busy: false,
+            status: {
+              tone: 'sent',
+              message: `${t('compose.sent')} · ${label}${time === '' ? '' : ` · ${time}`}`,
+            },
+          }))
+        } catch (error) {
+          if (live.current) {
+            setCompose((previous) => ({
+              ...previous,
+              busy: false,
+              status: { tone: 'error', message: `${t('error.compose')}${error?.message ?? error}` },
+            }))
+          }
+        }
+      }
+
+      const dispatchForTask = (task) => (dispatch !== null && dispatch.taskId === task.id ? dispatch : null)
 
       const board = snapshot.board
       const projects = Array.isArray(board?.projects) ? board.projects : []
@@ -566,16 +955,21 @@ window.__ModuleLoader__.load({
             h('span', { className: 'tb-sectionCount' }, String(openDecisions.length))),
           orderedDecisions.length === 0
             ? emptyState(t('decision.empty'))
-            : orderedDecisions.map(({ entry }, index) => h(DecisionCard, {
-              key: entry.id,
-              decision: entry,
-              index,
-              draft: drafts[entry.id],
-              submitting: submitting === entry.id,
-              onDraft,
-              onSubmit: (id) => { void submit(id) },
-              t,
-            })),
+            : [
+              h('p', { key: 'decision-hint', className: 'tb-hint' }, t('delivery.note')),
+              ...orderedDecisions.map(({ entry }, index) => h(DecisionCard, {
+                key: entry.id,
+                decision: entry,
+                index,
+                draft: drafts[entry.id],
+                submitting: submitting === entry.id,
+                onDraft,
+                onSubmit: (id) => { void submit(id) },
+                retryBusy: retry.busy && retry.id === entry.id,
+                onRetry: (id) => { void retryDecision(id) },
+                t,
+              })),
+            ],
           h('div', { className: 'tb-sectionHead' },
             h('h2', { className: 'tb-sectionTitle' }, t('section.tasks')),
             h('span', { className: 'tb-sectionCount' }, String(projectTasks.length)),
@@ -619,11 +1013,30 @@ window.__ModuleLoader__.load({
             : projectTasks.map((task) => h(TaskCard, {
               key: task.id,
               task,
+              dispatch: dispatchForTask(task),
+              sessions: sessionsState,
               onCycle: (entry) => { void cycleStatus(entry) },
               onToggleCheck: (taskId, index) => { void toggleCheck(taskId, index) },
               busyCheck: checkBusy,
+              onOpenDispatch: openDispatch,
+              onDispatchClose: closeDispatch,
+              onDispatchTarget: changeDispatchTarget,
+              onDispatchNote: changeDispatchNote,
+              onDispatchSubmit: () => { void submitDispatch() },
               t,
             })),
+          h(ComposePanel, {
+            sessions: sessionsState,
+            target: compose.target,
+            text: compose.text,
+            busy: compose.busy,
+            status: compose.status,
+            onChangeTarget: (value) => setCompose((previous) => ({ ...previous, target: value })),
+            onChangeText: (value) => setCompose((previous) => ({ ...previous, text: value })),
+            onSend: () => { void sendCompose() },
+            onReload: () => { void loadSessions() },
+            t,
+          }),
           h('footer', { className: 'tb-foot' },
             updatedAt === null ? '' : `${t('state.updated')} ${updatedAt.toLocaleTimeString()}`)))
     }
