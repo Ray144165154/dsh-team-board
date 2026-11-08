@@ -139,6 +139,8 @@ let writeChain = Promise.resolve()
 let loading
 /** Cordis context of the mounted Host plugin; delivery reads optional DSH services from it. */
 let runtime
+/** Session -> { seq, title }; session titles are immutable per event sequence. */
+const titleCache = new WeakMap()
 
 /** Serialize every mutation so two callers cannot interleave writes. */
 function serialize(work) {
@@ -267,14 +269,62 @@ function sessionIdOf(session) {
 
 function sessionTitleOf(session) {
   if (session === null || typeof session !== 'object') return ''
+  const seq = Number.isSafeInteger(session.seq) ? session.seq : undefined
+  const cached = titleCache.get(session)
+  if (cached !== undefined && cached.seq === seq) return cached.title
   const titles = service('sessionTitle')
   if (titles === null || titles === undefined || typeof titles.get !== 'function') return ''
   try {
     const snapshot = titles.get(session)
-    return typeof snapshot?.title === 'string' ? snapshot.title : ''
+    const title = typeof snapshot?.title === 'string' ? snapshot.title : ''
+    titleCache.set(session, { seq, title })
+    return title
   } catch {
     return ''
   }
+}
+
+/** Walk a subagent's live parent chain to the top-level (human-facing) agent. */
+function rootAgentOf(agent) {
+  const agents = service('agents')
+  const seen = new Set()
+  let current = agent
+  while (current?.session?.header?.parentSession !== undefined) {
+    const parentId = current.session.header.parentSession
+    if (typeof parentId !== 'string' || seen.has(parentId)) break
+    seen.add(parentId)
+    const parent = typeof agents?.get === 'function' ? agents.get(parentId) : undefined
+    if (parent === null || parent === undefined) break
+    current = parent
+  }
+  return current
+}
+
+/**
+ * Pick the session that should receive a decision answer. A Team teammate can
+ * be woken in place; a plain subagent usually disposes when its turn ends, so
+ * route the answer to its top-level parent instead of a session that cannot
+ * receive it.
+ */
+function decisionSource(agent) {
+  const session = agent?.session
+  if (session === null || session === undefined) return undefined
+  const sessionId = sessionIdOf(session)
+  if (sessionId === '') return undefined
+  if (session.header?.origin === 'subagent') {
+    let member
+    try {
+      member = service('agentTeams')?.tryMembership?.(agent)
+    } catch {
+      member = undefined
+    }
+    if (member?.role !== 'teammate') {
+      const root = rootAgentOf(agent)
+      const rootId = sessionIdOf(root?.session)
+      if (rootId !== '') return { sessionId: rootId, sessionTitle: agentLabel(root) }
+    }
+  }
+  return { sessionId, sessionTitle: agentLabel(agent) }
 }
 
 /** Prefer a Team teammate's stable name; fall back to the session title. */
@@ -292,9 +342,10 @@ function agentLabel(agent) {
 }
 
 /**
- * Build the user-role message the session inbox accepts. Only the fields the
- * session log validates are required: an id, role `user`, one text block and
- * a string `source.kind`.
+ * Build the user message the session inbox accepts. It deliberately keeps
+ * `source.kind === 'user'`: a board dispatch / human message is authored by
+ * the human, so it must render and title like a human prompt. Only the fields
+ * the session log validates are required.
  */
 function userMessage(body) {
   return {
@@ -455,8 +506,12 @@ async function answerDecision(input) {
     decision.status = 'answered'
     decision.answer = answer
     decision.answeredAt = nowIso()
-    // The answer stays durable on the board even when the asking session is
-    // gone; delivery is a best-effort convenience layered on top.
+    board.updatedAt = nowIso()
+    // The answer must be durable BEFORE the side effect: if delivery happened
+    // first and this write failed, the human would have answered into a board
+    // that still says open, and a retry would hit "already answered".
+    await persist(board)
+    // Delivery is best-effort; the answer above is already safe on disk.
     let delivery
     if (typeof decision.sourceSessionId === 'string' && decision.sourceSessionId !== '') {
       try {
@@ -465,15 +520,22 @@ async function answerDecision(input) {
         delivery = deliveryFailure(decision.sourceSessionId, decision.sourceSessionTitle, error)
       }
       decision.delivery = delivery
+      board.updatedAt = nowIso()
+      try {
+        await persist(board)
+      } catch (error) {
+        // The answer is durable; losing the delivery receipt is recoverable
+        // via the retry button, so do not fail the RPC.
+        runtime?.logger?.warn?.('team-board: answer saved but delivery status was not persisted', error)
+      }
     }
-    board.updatedAt = nowIso()
-    await persist(board)
     return delivery === undefined ? { board } : { board, delivery }
   })
 }
 
 async function deliverDecision(input) {
   const id = text(input?.id, 'id', { required: true, max: 64 })
+  const force = input?.force === true
   return serialize(async () => {
     const board = await readBoard()
     const decision = board.decisions.find((entry) => entry.id === id)
@@ -482,7 +544,15 @@ async function deliverDecision(input) {
     if (typeof decision.sourceSessionId !== 'string' || decision.sourceSessionId === '') {
       throw new Error(`decision ${id} has no source session to deliver to`)
     }
-    const delivery = deliverToSession(decision.sourceSessionId, decisionReply(decision), { mode: 'queue' })
+    if (decision.delivery?.status === 'sent' && !force) {
+      throw new Error(`decision ${id} was already delivered; pass force to send it again`)
+    }
+    let delivery
+    try {
+      delivery = deliverToSession(decision.sourceSessionId, decisionReply(decision), { mode: 'queue' })
+    } catch (error) {
+      delivery = deliveryFailure(decision.sourceSessionId, decision.sourceSessionTitle, error)
+    }
     decision.delivery = delivery
     board.updatedAt = nowIso()
     await persist(board)
@@ -780,12 +850,10 @@ function registerTools(ctx) {
     },
     output: boardOutput((_args, value) => [{ type: 'text', text: JSON.stringify(value?.decision ?? value, null, 2) }]),
     async execute(args, exec) {
-      // Remember who asked so the human's answer can be relayed back into the
-      // exact session that is blocked on it.
-      const sessionId = sessionIdOf(exec?.agent?.session)
-      return askDecision(args, sessionId === ''
-        ? undefined
-        : { sessionId, sessionTitle: agentLabel(exec.agent) })
+      // Remember who asked so the human's answer can be relayed back. A plain
+      // subagent disposes after its turn, so its question routes to the
+      // top-level parent; a Team teammate is woken in place.
+      return askDecision(args, decisionSource(exec?.agent))
     },
   }), 'team-board: collab_decision_ask')
 }

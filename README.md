@@ -220,7 +220,7 @@ flowchart LR
 { "title": "什么时候数", "detail": "**AI 分析完成后自动数**，跟在分析任务里，不加按钮" }
 ```
 
-`detail` 支持 `**加粗**`。工具会记下调用它的会话；人提交拍板后，Host 把答案作为一条 user 消息**自动投回那个会话**（`decision.sourceSessionId` / `decision.delivery` 可在板上看到）。agent 仍然可以用 `collab_board_read` 回读，但不需要靠轮询才能知道答案。
+`detail` 支持 `**加粗**`。工具会记下调用它的会话；人提交拍板后，Host 把答案作为一条 user 消息**自动投回那个会话**（`decision.sourceSessionId` / `decision.delivery` 可在板上看到）。Team 队友会直接唤醒；普通 subagent 结束回合后会被回收，所以它提的问题会转投到顶层父会话。agent 仍然可以用 `collab_board_read` 回读，但不需要靠轮询才能知道答案。
 
 ## 页面 RPC
 
@@ -231,7 +231,7 @@ flowchart LR
 | `state` | `{}` | `{ board }` | 页面轮询 |
 | `listSessions` | `{}` | `{ sessions: [{ id, title, cwd, status, kind, createdAt, events }] }` | 页面：派发 / 传话的会话下拉 |
 | `answerDecision` | `{ id, answer }` | `{ board, delivery? }` | 页面（**只有人**）；有提问会话时自动投递答案 |
-| `deliverDecision` | `{ id }` | `{ board, delivery }` | 页面：未送达时重发 |
+| `deliverDecision` | `{ id, force? }` | `{ board, delivery }` | 页面：未送达时重发；已送达的默认拒绝，`force: true` 才重复发送 |
 | `setTaskStatus` | `{ id, status }` | `{ board }` | 页面 |
 | `toggleCheck` | `{ taskId, index, ok? }` | `{ board }` | 页面；省略 `ok` 则翻转，并按勾选结果重算 `progress` |
 | `createProject` | `{ name, goal? }` | `{ board, project }` | 页面 / 新建项目 |
@@ -308,7 +308,7 @@ flowchart LR
 ## 开发与验证
 
 ```bash
-node test/verify-host.mjs    # 70 项 Host 行为检查
+node test/verify-host.mjs    # 76 项 Host 行为检查
 node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
 ```
 
@@ -326,7 +326,7 @@ node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 Rea
 ├── cordis.patch.yml         # 把插件插入 profile 的 patch
 ├── locale/{zh,en}.json      # 插件页显示的名称与描述
 ├── icon.svg                 # 插件图标
-├── test/verify-host.mjs     # Host 行为回归（70 项）
+├── test/verify-host.mjs     # Host 行为回归（76 项）
 ├── test/check-client.mjs    # Client 静态契约检查
 ├── .github/workflows/ci.yml # CI：push / PR 跑两条检查
 ├── CHANGELOG.md

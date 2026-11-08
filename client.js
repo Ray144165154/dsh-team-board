@@ -69,15 +69,15 @@ window.__ModuleLoader__.load({
       'dispatch.submit': '派发',
       'dispatch.submitting': '派发中…',
       'dispatch.recorded': '已派发',
-      'dispatch.failed': '派发失败',
       'delivery.sent': '已传达',
-      'delivery.failed': '未传达',
+      'delivery.failed': '未传达：',
       'delivery.missing': '还没有投递',
       'delivery.retry': '重发',
       'delivery.sending': '重发中…',
       'delivery.note': '拍板结果会自动发回提问的会话；agent 会在下一轮读到它。',
       'compose.title': '传话',
       'compose.description': '把一句话直接发进已打开的 agent 会话；对方会在下一轮读到。',
+      'compose.choose': '选择会话',
       'compose.target': '会话',
       'compose.placeholder': '把一句话发进这个会话…',
       'compose.send': '发送',
@@ -150,15 +150,15 @@ window.__ModuleLoader__.load({
       'dispatch.submit': 'Dispatch',
       'dispatch.submitting': 'Dispatching…',
       'dispatch.recorded': 'Dispatched',
-      'dispatch.failed': 'Dispatch failed',
       'delivery.sent': 'Delivered',
-      'delivery.failed': 'Not delivered',
+      'delivery.failed': 'Not delivered: ',
       'delivery.missing': 'not sent yet',
       'delivery.retry': 'Resend',
       'delivery.sending': 'Resending…',
       'delivery.note': 'Answers are sent back to the asking session automatically; the agent reads them on its next turn.',
       'compose.title': 'Message',
       'compose.description': 'Send one message straight into an open agent session; it reads it on the next turn.',
+      'compose.choose': 'Choose a session',
       'compose.target': 'Session',
       'compose.placeholder': 'Send one message into this session…',
       'compose.send': 'Send',
@@ -318,11 +318,11 @@ window.__ModuleLoader__.load({
 
     function DispatchPanel({ task, sessions, target, note, busy, error, onChangeTarget, onChangeNote, onSubmit, onCancel, t }) {
       const items = Array.isArray(sessions?.items) ? sessions.items : []
-      const ready = sessions?.phase === 'ready' && sessions?.unavailable !== true && items.length > 0
+      const ready = sessions?.unavailable !== true && items.length > 0
       return h('div', { className: 'tb-subpanel', 'data-dispatch': task.id },
         h('p', { className: 'tb-subpanelHead' }, `${t('dispatch.title')} · ${task.id}`),
-        sessions?.phase === 'loading' ? h('p', { className: 'tb-hint' }, t('dispatch.loading')) : null,
-        sessions?.phase === 'error' ? h('p', { className: 'tb-error', role: 'alert' }, `${t('error.sessions')}${sessions.error}`) : null,
+        sessions?.phase === 'loading' && items.length === 0 ? h('p', { className: 'tb-hint' }, t('dispatch.loading')) : null,
+        sessions?.error !== null && sessions?.error !== undefined ? h('p', { className: 'tb-error', role: 'alert' }, `${t('error.sessions')}${sessions.error}`) : null,
         sessions?.phase === 'ready' && sessions?.unavailable === true ? h('p', { className: 'tb-hint' }, t('session.unavailable')) : null,
         sessions?.phase === 'ready' && sessions?.unavailable !== true && items.length === 0 ? h('p', { className: 'tb-hint' }, t('dispatch.empty')) : null,
         ready
@@ -380,7 +380,8 @@ window.__ModuleLoader__.load({
             onClick: onReload,
           }, t('compose.reload'))),
         h('p', { className: 'tb-hint' }, t('compose.description')),
-        sessions?.phase === 'error' ? h('p', { className: 'tb-error', role: 'alert' }, `${t('error.sessions')}${sessions.error}`) : null,
+        sessions?.phase === 'loading' && items.length === 0 ? h('p', { className: 'tb-hint' }, t('dispatch.loading')) : null,
+        sessions?.error !== null && sessions?.error !== undefined ? h('p', { className: 'tb-error', role: 'alert' }, `${t('error.sessions')}${sessions.error}`) : null,
         sessions?.phase === 'ready' && sessions?.unavailable === true ? h('p', { className: 'tb-hint' }, t('session.unavailable')) : null,
         sessions?.phase === 'ready' && sessions?.unavailable !== true && items.length === 0 ? h('p', { className: 'tb-hint' }, t('compose.empty')) : null,
         sessions?.unavailable === true || items.length === 0
@@ -392,7 +393,7 @@ window.__ModuleLoader__.load({
               'aria-label': t('compose.target'),
               onChange: (event) => onChangeTarget(event.target.value),
             },
-            (target ?? '') === '' ? h('option', { value: '' }, t('dispatch.choose')) : null,
+            (target ?? '') === '' ? h('option', { value: '' }, t('compose.choose')) : null,
             items.map((session) => h('option', { key: session.id, value: session.id }, sessionOptionLabel(session, t)))),
             h('textarea', {
               className: 'tb-input',
@@ -400,6 +401,7 @@ window.__ModuleLoader__.load({
               value: text ?? '',
               placeholder: t('compose.placeholder'),
               'aria-label': t('compose.placeholder'),
+              disabled: busy,
               onChange: (event) => onChangeText(event.target.value),
             }),
             h('button', {
@@ -434,7 +436,7 @@ window.__ModuleLoader__.load({
       const delivered = delivery?.status === 'sent'
       const deliveryLabel = delivered
         ? `${t('delivery.sent')} · ${delivery.sessionTitle || decision.sourceSessionTitle || t('session.untitled')}${clockOf(delivery.at) === '' ? '' : ` · ${clockOf(delivery.at)}`}`
-        : `${t('delivery.failed')}：${delivery?.error ?? t('delivery.missing')}`
+        : `${t('delivery.failed')}${delivery?.error ?? t('delivery.missing')}`
       return h('article', { className: 'tb-card', 'data-decision': decision.id },
         h('div', { className: 'tb-cardHead' },
           h('span', { className: 'tb-cardIndex' }, String(index + 1)),
@@ -567,12 +569,13 @@ window.__ModuleLoader__.load({
       const [taskFormOpen, setTaskFormOpen] = React.useState(false)
       const [taskTitle, setTaskTitle] = React.useState('')
       const [taskBusy, setTaskBusy] = React.useState(false)
-      const [sessionsState, setSessionsState] = React.useState({ phase: 'idle', items: [], error: null })
+      const [sessionsState, setSessionsState] = React.useState({ phase: 'idle', items: [], error: null, refreshing: false, unavailable: false })
       const [dispatch, setDispatch] = React.useState(null)
       const [compose, setCompose] = React.useState({ target: '', text: '', busy: false, status: null })
       const [retry, setRetry] = React.useState({ id: '', busy: false })
       const live = React.useRef(true)
       const busy = React.useRef(false)
+      const sessionLoadSeq = React.useRef(0)
 
       const load = React.useCallback(async (signal) => {
         if (busy.current) return
@@ -595,22 +598,34 @@ window.__ModuleLoader__.load({
       }, [call])
 
       const loadSessions = React.useCallback(async () => {
-        setSessionsState((previous) => (previous.phase === 'loading' ? previous : { ...previous, phase: 'loading', error: null }))
+        const seq = sessionLoadSeq.current + 1
+        sessionLoadSeq.current = seq
+        setSessionsState((previous) => ({
+          ...previous,
+          // Keep the cached list usable while a refresh is in flight; only a
+          // truly empty list shows the spinner state.
+          phase: previous.items.length > 0 ? 'ready' : 'loading',
+          refreshing: true,
+          error: null,
+        }))
         try {
           const value = await call('listSessions', {})
-          if (!live.current) return
+          if (!live.current || seq !== sessionLoadSeq.current) return
           setSessionsState({
             phase: 'ready',
             items: Array.isArray(value?.sessions) ? value.sessions : [],
-            unavailable: value?.unavailable === true,
             error: null,
+            refreshing: false,
+            unavailable: value?.unavailable === true,
           })
         } catch (error) {
-          if (!live.current) return
+          if (!live.current || seq !== sessionLoadSeq.current) return
           setSessionsState((previous) => ({
-            phase: 'error',
-            items: previous.items ?? [],
+            phase: previous.items.length > 0 ? 'ready' : 'error',
+            items: previous.items,
             error: error?.message ?? String(error),
+            refreshing: false,
+            unavailable: previous.unavailable === true,
           }))
         }
       }, [call])
@@ -637,15 +652,21 @@ window.__ModuleLoader__.load({
       }, [selectedProjectId, snapshot.board])
 
       React.useEffect(() => {
-        if (sessionsState.phase !== 'ready' || sessionsState.items.length !== 1) return
-        const only = sessionsState.items[0].id
-        setCompose((previous) => (previous.target === '' ? { ...previous, target: only } : previous))
-        setDispatch((previous) => (previous === null || previous.target !== '' ? previous : { ...previous, target: only }))
+        if (sessionsState.phase !== 'ready') return
+        const items = sessionsState.items
+        const ids = new Set(items.map((session) => session.id))
+        const fallback = items.length === 1 ? items[0].id : ''
+        const reconcile = (previous) => {
+          if (previous.target !== '' && ids.has(previous.target)) return previous
+          return previous.target === fallback ? previous : { ...previous, target: fallback }
+        }
+        setCompose(reconcile)
+        setDispatch((previous) => (previous === null ? previous : reconcile(previous)))
       }, [sessionsState])
 
       const refresh = async () => {
         setRefreshing(true)
-        await load()
+        await Promise.all([load(), loadSessions()])
         if (live.current) setRefreshing(false)
       }
 
@@ -766,22 +787,27 @@ window.__ModuleLoader__.load({
 
       const submitDispatch = async () => {
         if (dispatch === null || dispatch.busy) return
+        const taskId = dispatch.taskId
         const sessionId = dispatch.target.trim()
         if (sessionId === '') return
         setDispatch((previous) => (previous === null ? previous : { ...previous, busy: true, error: null }))
         setNotice(null)
         try {
           const value = await call('dispatchTask', {
-            taskId: dispatch.taskId,
+            taskId,
             sessionId,
             note: dispatch.note.trim(),
           })
           if (!live.current) return
           setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
-          setDispatch(null)
+          // Another task's GO panel may have opened while this request was in
+          // flight; only this task's panel may close.
+          setDispatch((previous) => (previous !== null && previous.taskId === taskId ? null : previous))
         } catch (error) {
           if (live.current) {
-            setDispatch((previous) => (previous === null ? previous : { ...previous, busy: false, error: error?.message ?? String(error) }))
+            setDispatch((previous) => (previous !== null && previous.taskId === taskId
+              ? { ...previous, busy: false, error: error?.message ?? String(error) }
+              : previous))
           }
         }
       }
@@ -794,6 +820,13 @@ window.__ModuleLoader__.load({
           const value = await call('deliverDecision', { id })
           if (!live.current) return
           setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          const delivery = value?.delivery
+          if (delivery?.status !== 'sent') {
+            setNotice({
+              tone: 'error',
+              message: `${t('error.delivery')}${delivery?.error ?? t('delivery.missing')}`,
+            })
+          }
         } catch (error) {
           if (live.current) setNotice({ tone: 'error', message: `${t('error.delivery')}${error?.message ?? error}` })
         } finally {

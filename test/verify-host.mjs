@@ -48,6 +48,9 @@ const teammateSession = liveSession('session-teammate', '队友会话')
 teammateSession.session.header.origin = 'subagent'
 const ephemeralSession = liveSession('session-sub', '临时子会话')
 ephemeralSession.session.header.origin = 'subagent'
+const workerAgent = liveSession('session-worker', '子任务会话')
+workerAgent.session.header.origin = 'subagent'
+workerAgent.session.header.parentSession = 'session-alpha'
 
 const fakeServices = {
   agents: { get: (id) => agents.get(id), list: () => [...agents.values()] },
@@ -199,6 +202,7 @@ check('dispatch delivers a user message into the session', dispatchedMessage?.se
   && typeof dispatchedMessage?.message?.id === 'string', dispatchedMessage)
 const dispatchedBody = dispatchedMessage?.message?.content?.[0]?.text ?? ''
 check('dispatch prompt names the task and carries the instruction', dispatchedBody.includes('T-079') && dispatchedBody.includes('先跑测试') && dispatchedBody.includes('collab_board_read'), dispatchedBody.slice(0, 120))
+check('delivered message survives a JSON round-trip', JSON.parse(JSON.stringify(dispatchedMessage.message)).content[0].text === dispatchedBody)
 check('dispatch is persisted', (await readFile(path.join(home, 'team-board', 'board.json'), 'utf8')).includes('"dispatches"'))
 
 const dispatchUnknown = await rpc('dispatchTask', { taskId: 'T-999', sessionId: 'session-alpha' })
@@ -234,6 +238,23 @@ check('answerDecision relays the answer to the asking session', answeredFromSess
   && relayedDecision?.delivery?.status === 'sent'
   && deliveries.at(-1)?.sessionId === 'session-beta'
   && deliveries.at(-1)?.message?.content?.[0]?.text?.includes('选 B'), [relayedDecision?.delivery, deliveries.at(-1)])
+const duplicateDelivery = await rpc('deliverDecision', { id: askedFromSession.decision.id })
+check('deliverDecision rejects an already delivered answer', duplicateDelivery.json?.result?.ok === false
+  && /already delivered/u.test(duplicateDelivery.json?.result?.error?.message ?? ''), duplicateDelivery.json)
+
+// A plain subagent cannot receive the relay after its turn ends, so its
+// question must route to the top-level parent session instead.
+const askedFromWorker = await tools.get('collab_decision_ask').execute({
+  title: '子代理的问题',
+  detail: '往上抛',
+}, { agent: workerAgent, signal: new AbortController().signal })
+check('subagent decision routes to the root session', askedFromWorker.decision.sourceSessionId === 'session-alpha'
+  && askedFromWorker.decision.sourceSessionTitle === '主会话', askedFromWorker.decision)
+const answeredWorker = await rpc('answerDecision', { id: askedFromWorker.decision.id, answer: '往上走' })
+const workerDelivery = answeredWorker.json?.result?.value?.delivery
+check('subagent answer is delivered to the root session', workerDelivery?.status === 'sent'
+  && workerDelivery?.sessionId === 'session-alpha'
+  && deliveries.at(-1)?.message?.content?.[0]?.text?.includes('往上走'), [workerDelivery, deliveries.at(-1)])
 
 // Delivery failure never blocks saving the answer; a later retry can deliver.
 const askedForRetry = await tools.get('collab_decision_ask').execute({
@@ -248,6 +269,9 @@ check('answer still saves when the session is gone', answeredOffline.json?.resul
   && failedDecision?.status === 'answered'
   && failedDecision?.delivery?.status === 'failed'
   && /not open/u.test(failedDecision?.delivery?.error ?? ''), failedDecision)
+const offlineRetry = await rpc('deliverDecision', { id: askedForRetry.decision.id })
+check('deliverDecision records a failed retry', offlineRetry.json?.result?.ok === true
+  && offlineRetry.json?.result?.value?.delivery?.status === 'failed', offlineRetry.json)
 agents.set('session-beta', retryAgent)
 const retried = await rpc('deliverDecision', { id: askedForRetry.decision.id })
 check('deliverDecision retries the relay', retried.json?.result?.ok === true
@@ -303,6 +327,7 @@ let secondRoute
 applyAgain({
   effect: (fn) => { fn(); return () => {} },
   tools: { register: (definition) => { secondTools.set(definition.name, definition); return () => {} } },
+  get: (name) => fakeServices[name],
   connection: { fetch: { register: (registered) => { secondRoute = registered; return () => {} } } },
   logger: { warn: () => {} },
 })
@@ -322,6 +347,21 @@ check('answering session and delivery survive restart', (() => {
 check('toggled check survives a fresh module load', reloaded.result.value.board.tasks.find((task) => task.id === 'T-080')?.checks?.[0]?.ok === false, reloaded.result.value.board.tasks.find((task) => task.id === 'T-080')?.checks)
 check('created project survives a fresh module load', reloaded.result.value.board.projects.some((project) => project.id === 'P-2'), reloaded.result.value.board.projects.map((project) => project.id))
 check('upsertTask RPC task survives a fresh module load', reloaded.result.value.board.tasks.some((task) => task.id === 'T-081'), reloaded.result.value.board.tasks.map((task) => task.id))
+
+const restartDispatchResponse = await secondRoute.fetch(new Request('http://127.0.0.1/api/dsh-team-board', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({
+    type: 'client-request',
+    rpcId: 'r3',
+    method: 'dsh-team-board',
+    payload: { method: 'dispatchTask', payload: { taskId: 'T-081', sessionId: 'session-alpha', note: '重启后派发' } },
+  }),
+}))
+const restartDispatch = JSON.parse(await restartDispatchResponse.text())
+check('restart context can still dispatch', restartDispatch.result?.ok === true
+  && restartDispatch.result?.value?.delivery?.status === 'sent'
+  && deliveries.at(-1)?.message?.content?.[0]?.text?.includes('重启后派发'), restartDispatch.result)
 
 for (const dispose of disposers) { try { dispose() } catch {} }
 await new Promise((resolve) => setTimeout(resolve, 150))
