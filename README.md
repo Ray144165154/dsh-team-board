@@ -138,7 +138,7 @@ flowchart LR
 
 **前提**：DSH Desktop（Web UI 的 profile），本插件在 **0.2.2-rc.1** 上开发验证，其它版本未测。升级到 v0.3 后需要重启一次 DSH（Host 半边的投递代码要重新加载）；只刷新页面不会换掉运行中的 Host。
 
-**跨平台**：Host 只用 Node 内置模块（`node:fs` / `node:os` / `node:path` / `node:crypto`），Client 只用标准 DOM 与 DSH 主题变量，macOS / Windows / Linux 的 DSH Desktop 通用；CI 在 `ubuntu-latest`、`macos-latest`、`windows-latest` 三个平台跑同一套测试。派发 / 传话依赖各平台同版本的 `agents` / `sessions` 服务；Agent Teams 是可选增强，没有它只是不显示队友会话。
+**跨平台**：Host 只用 Node 内置模块（`node:fs` / `node:os` / `node:path` / `node:crypto`），Client 只用标准 DOM 与 DSH 主题变量，设计上对 macOS / Windows / Linux 的 DSH Desktop 通用；CI 在 `ubuntu-latest`、`macos-latest`、`windows-latest` 三个平台跑同一套测试。macOS 已实机跑通投递；Windows / Linux 的 DSH 真机投递尚未实测，CI 用 fake context 覆盖 Host 行为与 Client 契约。派发 / 传话依赖各平台同版本的 `agents` / `sessions` 服务；Agent Teams 是可选增强，没有它只是不显示队友会话。
 
 1. 把本仓库克隆到本地任意目录：
 
@@ -295,6 +295,7 @@ flowchart LR
 - 会话列表是打开面板时读一次：新开的会话要手动点「刷新会话」（切回窗口也会自动刷新）。
 - 投递失败不会重试队列：拍板有「重发」，任务派发 / 传话失败后重新点一次即可。
 - 投递没有幂等键：同一句话点两次会进两次会话（按钮在请求期间会禁用，正常操作不会触发）。
+- Windows / Linux 的 DSH 真机投递尚未实测：CI 用 fake context 验证 Host 行为与 Client 契约；macOS 真机已验证。
 
 ## 路线图
 
