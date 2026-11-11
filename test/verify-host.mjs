@@ -83,7 +83,11 @@ function check(label, condition, detail) {
   }
 }
 
+let requestSequence = 0
 async function rpc(method, payload, options = {}) {
+  if (method === 'dispatchTask' || method === 'sendMessage') {
+    payload = { requestId: `test-${++requestSequence}`, ...payload }
+  }
   const body = options.raw ?? JSON.stringify({
     type: 'client-request',
     rpcId: options.rpcId ?? 'rpc-1',
@@ -355,7 +359,7 @@ const restartDispatchResponse = await secondRoute.fetch(new Request('http://127.
     type: 'client-request',
     rpcId: 'r3',
     method: 'dsh-team-board',
-    payload: { method: 'dispatchTask', payload: { taskId: 'T-081', sessionId: 'session-alpha', note: '重启后派发' } },
+    payload: { method: 'dispatchTask', payload: { taskId: 'T-081', sessionId: 'session-alpha', note: '重启后派发', requestId: 'restart-dispatch' } },
   }),
 }))
 const restartDispatch = JSON.parse(await restartDispatchResponse.text())

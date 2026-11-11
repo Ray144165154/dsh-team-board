@@ -238,8 +238,12 @@ flowchart LR
 | `toggleCheck` | `{ taskId, index, ok? }` | `{ board }` | 页面；省略 `ok` 则翻转，并按勾选结果重算 `progress` |
 | `createProject` | `{ name, goal? }` | `{ board, project }` | 页面 / 新建项目 |
 | `upsertTask` | 同 `collab_task_upsert` | `{ board, task }` | 页面 / 新建任务 |
-| `dispatchTask` | `{ taskId, sessionId, note?, mode? }` | `{ board, task, delivery }` | 页面 `GO`：把任务 prompt 投进会话，任务转 `doing` |
-| `sendMessage` | `{ sessionId, text, taskId?, mode? }` | `{ board, task?, delivery }` | 页面「传话」：把人的一句话投进会话 |
+| `dispatchTask` | `{ taskId, sessionId, requestId, note?, mode? }` | `{ board, task, delivery }` | 页面 `GO`：把任务 prompt 投进会话，任务转 `doing` |
+| `sendMessage` | `{ sessionId, text, requestId, taskId?, mode? }` | `{ board, task?, delivery }` | 页面「传话」：把人的一句话投进会话 |
+
+`dispatchTask` / `sendMessage` 必须携带非空的 `requestId`（建议 UUID，最长 200 字符）。同一次操作重试必须沿用它；明确发起另一条消息时才换新 ID。相同 ID、相同参数的已成功请求返回原投递结果，不重复发送；相同 ID 改参数会报错。页面会自动管理 ID，并在响应丢失或出现投递警告时保留到当前 tab 的 `sessionStorage`，刷新页面后也能沿用。升级这项 RPC 契约后，请重启 DSH 并刷新页面，让 Host / Client 同时更新。
+
+发送前先持久化 `deliveryRequests` 意图记录，发送后再保存回执。如果回执保存失败，返回成功结果及 `warning`，页面提示先核对目标会话；磁盘上的 `pending` 记录阻止同一请求再次发送，重启后仍有效。`pending` 表示投递结果不确定，可能是发送前进程退出，也可能是已发送但回执未保存；不会自动重发。核对会话后，可用新 ID 明确发起一次新发送；拍板可在核对后显式用 `force: true` 重发。此机制不保证宿主收件箱与看板之间的事务性「恰好一次」投递。
 
 `mode` 默认 `queue`（agent 下一轮处理）；传 `steer` 时，若 agent 正在运行，会在最近的步骤边界插入。`delivery` 形如 `{ status: "sent" | "failed", sessionId, sessionTitle, mode, at, error? }`。
 
@@ -270,7 +274,9 @@ flowchart LR
 
 `dispatches` 只保留最近 10 条，`messages` 也只保留最近 10 条，避免单卡无限增长。旧版 `board.json` 没有这些字段也能直接读，页面按「无派发 / 无投递」渲染。
 
-写入走 `临时文件 + rename`，并且所有变更串行化；Windows 上如果目标文件被杀毒 / 索引器短暂占用，会先重试，仍失败则退化为复制覆盖，避免整个看板写不进去。文件损坏时会先备份成 `board.json.corrupt-<时间戳>.json` 再重建，不会直接清空。
+写入走 `临时文件 + rename`，并且所有变更串行化。修改使用独立副本，保存成功后才更新缓存；失败时缓存与已保存数据保持一致。Windows 上如果目标文件被杀毒 / 索引器短暂占用，会先重试，仍失败就报错并保留原文件，不再退化为复制覆盖。文件损坏时会先复制备份成 `board.json.corrupt-<时间戳>.json` 再重建；备份失败会停止恢复，保留原文件并报错。
+
+`deliveryRequests` 是投递防重复日志，旧文件没有该字段也可正常读取。它独立于每张卡最近 10 条的显示记录，保留请求 ID、参数摘要及投递状态，不会随卡片历史截断；目前不自动清理，以保持旧请求重试时的防重复能力。
 
 ## 设计取舍
 
@@ -293,8 +299,8 @@ flowchart LR
 - 只能投递给已打开的会话：冷会话要先在侧边栏打开；v0.3 不会替你新建会话或切换目录。
 - v0.3 之前创建的待拍板卡没有记录提问会话，回答只留档、不会自动回投；升级后新发的卡才带来源。
 - 会话列表是打开面板时读一次：新开的会话要手动点「刷新会话」（切回窗口也会自动刷新）。
-- 投递失败不会重试队列：拍板有「重发」，任务派发 / 传话失败后重新点一次即可。
-- 投递没有幂等键：同一句话点两次会进两次会话（按钮在请求期间会禁用，正常操作不会触发）。
+- 投递失败不会自动重试：明确失败的请求可沿用 ID 重试；结果不确定的 `pending` 请求必须先核对目标会话。
+- 防重复按请求 ID 生效：主动换新 ID、另一 tab 发起新请求，或显式强制重发仍会发送新消息。投递日志目前持续增长。
 - Windows / Linux 的 DSH 真机投递尚未实测：CI 用 fake context 验证 Host 行为与 Client 契约；macOS 真机已验证。
 
 ## 路线图
@@ -313,9 +319,11 @@ flowchart LR
 ```bash
 node test/verify-host.mjs    # 77 项 Host 行为检查
 node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
+node test/verify-reliability.mjs # 41 项故障注入检查
+node test/verify-client-retry.mjs # 8 项客户端重试检查（最小 hook 模拟）
 ```
 
-`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。两个脚本都不会碰你真实的 board 文件，CI 会在 Linux / macOS / Windows 三个平台都跑（`.github/workflows/ci.yml`）。
+`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。故障注入脚本另覆盖磁盘写入失败、损坏备份失败、Windows 锁重试耗尽、并发重复请求及重启后的防重复；客户端重试脚本执行真实页面事件处理函数，模拟响应丢失、刷新页面与成功后新发送。所有脚本都不会碰你真实的 board 文件，CI 会在 Linux / macOS / Windows 三个平台都跑（`.github/workflows/ci.yml`）。
 
 > 页面视觉没有在自动化里核对（无浏览器控制），仓库内的界面示意是结构草图，不是截图。
 
@@ -331,7 +339,9 @@ node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 Rea
 ├── icon.svg                 # 插件图标
 ├── test/verify-host.mjs     # Host 行为回归（77 项）
 ├── test/check-client.mjs    # Client 静态契约检查
-├── .github/workflows/ci.yml # CI：push / PR 在 Linux / macOS / Windows 跑两条检查
+├── test/verify-reliability.mjs # 存储与投递异常回归
+├── test/verify-client-retry.mjs # Client 重试与页面重载回归
+├── .github/workflows/ci.yml # CI：push / PR 在 Linux / macOS / Windows 跑全部检查
 ├── CHANGELOG.md
 ├── LICENSE                  # MIT
 └── README.md

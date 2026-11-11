@@ -6,8 +6,8 @@
  * functions the tools use, so the UI and an agent can never disagree about
  * the board's rules.
  */
-import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { constants, promises as fs } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -157,10 +157,11 @@ function normalizeBoard(value) {
     projects: Array.isArray(board.projects) ? board.projects : [],
     decisions: Array.isArray(board.decisions) ? board.decisions : [],
     tasks: Array.isArray(board.tasks) ? board.tasks : [],
+    deliveryRequests: Array.isArray(board.deliveryRequests) ? board.deliveryRequests : [],
   }
 }
 
-/** Windows can briefly lock the destination (indexer/AV); retry, then copy. */
+/** Retry transient Windows locks without falling back to a destructive overwrite. */
 const WINDOWS_REPLACE_CODES = new Set(['EPERM', 'EBUSY', 'EACCES', 'EEXIST'])
 
 async function replaceBoardFile(temporary, file) {
@@ -178,10 +179,7 @@ async function replaceBoardFile(temporary, file) {
         if (!WINDOWS_REPLACE_CODES.has(retry?.code)) throw retry
       }
     }
-    // Atomic replace is impossible while the handle is held; keep the board
-    // writable with a copy and clean up the temporary file.
-    await fs.copyFile(temporary, file)
-    await fs.rm(temporary, { force: true })
+    throw new Error('board file is locked; original data was preserved, please retry')
   }
 }
 
@@ -189,9 +187,13 @@ async function persist(board) {
   await fs.mkdir(boardDirectory(), { recursive: true })
   const file = boardFile()
   const temporary = `${file}.${process.pid}.tmp`
-  await fs.writeFile(temporary, `${JSON.stringify(board, null, 2)}\n`, 'utf8')
-  await replaceBoardFile(temporary, file)
-  cached = board
+  try {
+    await fs.writeFile(temporary, `${JSON.stringify(board, null, 2)}\n`, 'utf8')
+    await replaceBoardFile(temporary, file)
+    cached = structuredClone(board)
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => undefined)
+  }
 }
 
 async function loadBoard() {
@@ -211,7 +213,8 @@ async function loadBoard() {
   } catch (error) {
     // Keep the unreadable file for inspection instead of silently losing it.
     const backup = `${file}.corrupt-${Date.now()}.json`
-    await fs.rename(file, backup).catch(() => undefined)
+    // Do not replace the original unless its backup is safely written.
+    await fs.copyFile(file, backup, constants.COPYFILE_EXCL)
     const seeded = seedBoard()
     await persist(seeded)
     return seeded
@@ -219,12 +222,12 @@ async function loadBoard() {
 }
 
 async function readBoard() {
-  if (cached !== undefined) return cached
+  if (cached !== undefined) return structuredClone(cached)
   // One first-read at a time: a concurrent second caller must not seed twice.
   if (loading === undefined) {
     loading = loadBoard().finally(() => { loading = undefined })
   }
-  return loading
+  return structuredClone(await loading)
 }
 
 /* ------------------------------------------------------------------ */
@@ -460,6 +463,47 @@ function deliverToSession(sessionId, body, options = {}) {
   }
 }
 
+/** Persist intent before sending. An interrupted send is never automatically repeated. */
+async function deliverOnce(board, requestId, operation, payload, sessionId, body, mode, record) {
+  const fingerprint = createHash('sha256').update(JSON.stringify([operation, payload])).digest('hex')
+  const requests = board.deliveryRequests ??= []
+  let request = requests.find((entry) => entry.id === requestId)
+  if (request !== undefined) {
+    if (request.fingerprint !== fingerprint) throw new Error('requestId was already used for a different delivery')
+    if (request.delivery?.status === 'sent') return { board, delivery: request.delivery }
+    if (request.status === 'pending') {
+      throw new Error('delivery outcome is uncertain; check the target session before starting a new send')
+    }
+  } else {
+    request = { id: requestId, fingerprint }
+    requests.push(request)
+  }
+  request.status = 'pending'
+  request.at = nowIso()
+  await persist(board)
+  let delivery
+  try {
+    delivery = deliverToSession(sessionId, body, { mode })
+  } catch (error) {
+    delivery = deliveryFailure(sessionId, '', error)
+  }
+  request.status = delivery.status
+  request.delivery = delivery
+  record(delivery)
+  board.updatedAt = nowIso()
+  try {
+    await persist(board)
+  } catch (error) {
+    // The durable pending record blocks retries even after a Host restart.
+    runtime?.logger?.warn?.('team-board: delivery receipt was not saved', error)
+    return {
+      board: await readBoard(), delivery,
+      warning: 'Delivery receipt could not be saved. Check the target session before sending again.',
+    }
+  }
+  return { board, delivery }
+}
+
 function deliveryFailure(sessionId, title, error) {
   return {
     status: 'failed',
@@ -536,25 +580,12 @@ async function answerDecision(input) {
     // first and this write failed, the human would have answered into a board
     // that still says open, and a retry would hit "already answered".
     await persist(board)
-    // Delivery is best-effort; the answer above is already safe on disk.
-    let delivery
-    if (typeof decision.sourceSessionId === 'string' && decision.sourceSessionId !== '') {
-      try {
-        delivery = deliverToSession(decision.sourceSessionId, decisionReply(decision), { mode: 'queue' })
-      } catch (error) {
-        delivery = deliveryFailure(decision.sourceSessionId, decision.sourceSessionTitle, error)
-      }
-      decision.delivery = delivery
-      board.updatedAt = nowIso()
-      try {
-        await persist(board)
-      } catch (error) {
-        // The answer is durable; losing the delivery receipt is recoverable
-        // via the retry button, so do not fail the RPC.
-        runtime?.logger?.warn?.('team-board: answer saved but delivery status was not persisted', error)
-      }
+    if (typeof decision.sourceSessionId !== 'string' || decision.sourceSessionId === '') return { board }
+    try {
+      return await relayDecision(board, decision)
+    } catch (error) {
+      return { board: await readBoard(), warning: `Answer saved, but delivery could not start: ${error.message}` }
     }
-    return delivery === undefined ? { board } : { board, delivery }
   })
 }
 
@@ -572,17 +603,14 @@ async function deliverDecision(input) {
     if (decision.delivery?.status === 'sent' && !force) {
       throw new Error(`decision ${id} was already delivered; pass force to send it again`)
     }
-    let delivery
-    try {
-      delivery = deliverToSession(decision.sourceSessionId, decisionReply(decision), { mode: 'queue' })
-    } catch (error) {
-      delivery = deliveryFailure(decision.sourceSessionId, decision.sourceSessionTitle, error)
-    }
-    decision.delivery = delivery
-    board.updatedAt = nowIso()
-    await persist(board)
-    return { board, delivery }
+    return relayDecision(board, decision, force)
   })
+}
+
+function relayDecision(board, decision, force = false) {
+  return deliverOnce(board, force ? randomUUID() : `decision:${decision.id}`, 'decision',
+    { id: decision.id, answer: decision.answer }, decision.sourceSessionId, decisionReply(decision), 'queue',
+    (delivery) => { decision.delivery = delivery })
 }
 
 async function setTaskStatus(input) {
@@ -729,22 +757,23 @@ async function dispatchTask(input) {
   const sessionId = text(input?.sessionId, 'sessionId', { required: true, max: 200 })
   const note = text(input?.note, 'note', { max: 1000 }) ?? ''
   const mode = input?.mode === 'steer' ? 'steer' : 'queue'
+  const requestId = text(input?.requestId, 'requestId', { max: 200, required: true })
   return serialize(async () => {
     const board = await readBoard()
     const task = board.tasks.find((entry) => entry.id === taskId)
     if (task === undefined) throw new Error(`unknown task ${taskId}`)
     const project = projectOf(board, task.projectId)
-    // Deliver before touching the board: a failed delivery must not claim the
-    // task is dispatched.
-    const delivery = deliverToSession(sessionId, dispatchPrompt(task, project, note), { mode })
-    task.status = 'doing'
-    task.dispatches = [...(Array.isArray(task.dispatches) ? task.dispatches : []).slice(-9), { ...delivery, note }]
-    task.updatedAt = nowIso()
-    project.currentTask = task.id
-    project.updatedAt = nowIso()
-    board.updatedAt = nowIso()
-    await persist(board)
-    return { board, task: { ...task }, delivery }
+    const result = await deliverOnce(board, requestId, 'dispatchTask', { taskId, sessionId, note, mode },
+      sessionId, dispatchPrompt(task, project, note), mode, (delivery) => {
+        if (delivery.status !== 'sent') return
+        task.status = 'doing'
+        task.dispatches = [...(Array.isArray(task.dispatches) ? task.dispatches : []).slice(-9), { ...delivery, note }]
+        task.updatedAt = nowIso()
+        project.currentTask = task.id
+        project.updatedAt = nowIso()
+      })
+    if (result.delivery.status === 'failed') throw new Error(result.delivery.error)
+    return { ...result, task: result.board.tasks.find((entry) => entry.id === taskId) }
   })
 }
 
@@ -753,6 +782,7 @@ async function sendMessage(input) {
   const body = text(input?.text, 'text', { required: true, max: 4000 })
   const taskId = text(input?.taskId, 'taskId', { max: 64 })
   const mode = input?.mode === 'steer' ? 'steer' : 'queue'
+  const requestId = text(input?.requestId, 'requestId', { max: 200, required: true })
   return serialize(async () => {
     const board = await readBoard()
     const task = taskId === undefined ? undefined : board.tasks.find((entry) => entry.id === taskId)
@@ -760,19 +790,16 @@ async function sendMessage(input) {
     const bodyWithContext = task === undefined
       ? `【协作台 · 传话】来自人：\n${body}`
       : `【协作台 · 传话】关于任务 ${task.id} · ${task.title}\n来自人：\n${body}`
-    const delivery = deliverToSession(sessionId, bodyWithContext, { mode })
-    if (task !== undefined) {
-      task.messages = [...(Array.isArray(task.messages) ? task.messages : []).slice(-9), {
-        text: body,
-        at: delivery.at,
-        sessionId: delivery.sessionId,
-        sessionTitle: delivery.sessionTitle,
-      }]
-      task.updatedAt = nowIso()
-    }
-    board.updatedAt = nowIso()
-    await persist(board)
-    return { board, task: task === undefined ? undefined : { ...task }, delivery }
+    const result = await deliverOnce(board, requestId, 'sendMessage', { sessionId, body, taskId, mode },
+      sessionId, bodyWithContext, mode, (delivery) => {
+        if (task === undefined || delivery.status !== 'sent') return
+        task.messages = [...(Array.isArray(task.messages) ? task.messages : []).slice(-9), {
+          text: body, at: delivery.at, sessionId: delivery.sessionId, sessionTitle: delivery.sessionTitle,
+        }]
+        task.updatedAt = nowIso()
+      })
+    if (result.delivery.status === 'failed') throw new Error(result.delivery.error)
+    return { ...result, task: result.board.tasks.find((entry) => entry.id === taskId) }
   })
 }
 

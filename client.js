@@ -576,6 +576,22 @@ window.__ModuleLoader__.load({
       const live = React.useRef(true)
       const busy = React.useRef(false)
       const sessionLoadSeq = React.useRef(0)
+      const deliveryIds = React.useRef(new Map())
+      const deliveryId = (method, payload) => {
+        const key = JSON.stringify([method, payload])
+        if (!deliveryIds.current.has(key)) {
+          let saved
+          try { saved = window.sessionStorage.getItem(`team-board:${key}`) } catch {}
+          const id = saved || window.crypto.randomUUID()
+          deliveryIds.current.set(key, id)
+          try { window.sessionStorage.setItem(`team-board:${key}`, id) } catch {}
+        }
+        return { key, requestId: deliveryIds.current.get(key) }
+      }
+      const finishDelivery = (attempt) => {
+        deliveryIds.current.delete(attempt.key)
+        try { window.sessionStorage.removeItem(`team-board:${attempt.key}`) } catch {}
+      }
 
       const load = React.useCallback(async (signal) => {
         if (busy.current) return
@@ -688,6 +704,7 @@ window.__ModuleLoader__.load({
             return next
           })
           setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          if (value?.warning) setNotice({ tone: 'error', message: value.warning })
         } catch (error) {
           if (live.current) setNotice({ tone: 'error', message: `${t('error.submit')}${error?.message ?? error}` })
         } finally {
@@ -793,13 +810,13 @@ window.__ModuleLoader__.load({
         setDispatch((previous) => (previous === null ? previous : { ...previous, busy: true, error: null }))
         setNotice(null)
         try {
-          const value = await call('dispatchTask', {
-            taskId,
-            sessionId,
-            note: dispatch.note.trim(),
-          })
+          const payload = { taskId, sessionId, note: dispatch.note.trim() }
+          const attempt = deliveryId('dispatchTask', payload)
+          const value = await call('dispatchTask', { ...payload, requestId: attempt.requestId })
+          if (!value?.warning) finishDelivery(attempt)
           if (!live.current) return
           setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          if (value?.warning) setNotice({ tone: 'error', message: value.warning })
           // Another task's GO panel may have opened while this request was in
           // flight; only this task's panel may close.
           setDispatch((previous) => (previous !== null && previous.taskId === taskId ? null : previous))
@@ -820,6 +837,7 @@ window.__ModuleLoader__.load({
           const value = await call('deliverDecision', { id })
           if (!live.current) return
           setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          if (value?.warning) setNotice({ tone: 'error', message: value.warning })
           const delivery = value?.delivery
           if (delivery?.status !== 'sent') {
             setNotice({
@@ -841,9 +859,13 @@ window.__ModuleLoader__.load({
         setCompose((previous) => ({ ...previous, busy: true, status: null }))
         setNotice(null)
         try {
-          const value = await call('sendMessage', { sessionId, text: body })
+          const payload = { sessionId, text: body }
+          const attempt = deliveryId('sendMessage', payload)
+          const value = await call('sendMessage', { ...payload, requestId: attempt.requestId })
+          if (!value?.warning) finishDelivery(attempt)
           if (!live.current) return
           setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          if (value?.warning) setNotice({ tone: 'error', message: value.warning })
           const delivery = value?.delivery
           const label = delivery?.sessionTitle || t('session.untitled')
           const time = clockOf(delivery?.at)

@@ -28,3 +28,5 @@ jobs:
           node-version: 20
       - run: node test/verify-host.mjs
       - run: node test/check-client.mjs
+      - run: node test/verify-reliability.mjs
+      - run: node test/verify-client-retry.mjs
