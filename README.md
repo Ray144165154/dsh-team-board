@@ -138,7 +138,7 @@ flowchart LR
 
 **前提**：DSH Desktop（Web UI 的 profile），本插件在 **0.2.2-rc.1** 上开发验证，其它版本未测。升级到 v0.3 后需要重启一次 DSH（Host 半边的投递代码要重新加载）；只刷新页面不会换掉运行中的 Host。
 
-**跨平台**：Host 只用 Node 内置模块（`node:fs` / `node:os` / `node:path` / `node:crypto`），Client 只用标准 DOM 与 DSH 主题变量，设计上对 macOS / Windows / Linux 的 DSH Desktop 通用；CI 在 `ubuntu-latest`、`macos-latest`、`windows-latest` 三个平台跑同一套测试。macOS 已实机跑通投递；Windows / Linux 的 DSH 真机投递尚未实测，CI 用 fake context 覆盖 Host 行为与 Client 契约。派发 / 传话依赖各平台同版本的 `agents` / `sessions` 服务；Agent Teams 是可选增强，没有它只是不显示队友会话。
+**跨平台**：Host 只用 Node 内置模块（`node:fs` / `node:os` / `node:path` / `node:crypto`），Client 只用标准 DOM 与 DSH 主题变量，设计上对 macOS / Windows / Linux 的 DSH Desktop 通用；CI 在 `ubuntu-latest`、`macos-latest`、`windows-latest` 三个平台跑同一套测试。macOS 已实机跑通看板读取、多项目派发、决策自动归属、拍板回投和传话（[验证记录](docs/verification-2026-11-11.md)）；Windows / Linux 的 DSH 真机投递尚未实测，CI 用 fake context 覆盖 Host 行为与 Client 契约。派发 / 传话依赖各平台同版本的 `agents` / `sessions` 服务；Agent Teams 是可选增强，没有它只是不显示队友会话。
 
 1. 把本仓库克隆到本地任意目录：
 
@@ -205,22 +205,24 @@ flowchart LR
 | 参数 | 类型 | 说明 |
 | --- | --- | --- |
 | `taskId` | string | 已有任务 id；省略则新建 |
-| `projectId` | string | 省略用第一个项目 |
-| `title` | string | 标题（新建时必填） |
+| `projectId` | string | 新建时省略用第一个项目；更新时必须与已有任务所属项目一致 |
+| `title` | string | 标题（新建时必填；提供时不能是空白） |
 | `status` | `todo` \| `doing` \| `done` | 状态 |
 | `commander` / `executor` / `reviewer` | string | 三个角色 |
-| `progressPassed` / `progressTotal` | number | 验收进度 `0/3` |
+| `progressPassed` / `progressTotal` | integer | 非负安全整数，手动进度须满足通过数 ≤ 总数；有验收清单时以清单计算结果为准 |
 | `checks` | string[] | 验收项全量替换；**同名的完成态会保留** |
 | `doneChecks` | string[] | 本次标记通过的验收项 |
 | `note` | string | 卡上的备注 |
 
 ### `collab_decision_ask`
 
-发一张待拍板卡。**一个问题一张卡**，标题短一点。
+发一张待拍板卡。**一个问题一张卡**，标题短一点。任务相关的问题请携带 `taskId`，决策卡会记录任务关联，并从任务确定项目；同时提供 `projectId` 时两者必须一致。
 
 ```json
-{ "title": "什么时候数", "detail": "**AI 分析完成后自动数**，跟在分析任务里，不加按钮" }
+{ "taskId": "T-078", "projectId": "P-1", "title": "什么时候数", "detail": "**AI 分析完成后自动数**，跟在分析任务里，不加按钮" }
 ```
+
+`taskId` 和 `projectId` 都省略时，如果提问会话仅有一条仍在进行的派发任务，会自动关联该任务；单项目、无派发上下文时仍默认用唯一项目。会话对应多条进行中任务，或多项目下无法确定归属时，会要求显式提供 `taskId` 或 `projectId`，不会悄悄归入第一个项目。派发提示中已给出准确参数。
 
 `detail` 支持 `**加粗**`。工具会记下调用它的会话；人提交拍板后，Host 把答案作为一条 user 消息**自动投回那个会话**（`decision.sourceSessionId` / `decision.delivery` 可在板上看到）。Team 队友会直接唤醒；普通 subagent 结束回合后会被回收，所以它提的问题会转投到顶层父会话。agent 仍然可以用 `collab_board_read` 回读，但不需要靠轮询才能知道答案。
 
@@ -254,6 +256,7 @@ flowchart LR
 ```jsonc
 {
   "version": 1,
+  "revision": 12,
   "updatedAt": "2026-11-04T08:08:10.518Z",
   "projects": [{ "id": "P-1", "name": "AHP 协作台", "goal": "…", "currentTask": "T-078" }],
   "decisions": [{
@@ -275,6 +278,8 @@ flowchart LR
 `dispatches` 只保留最近 10 条，`messages` 也只保留最近 10 条，避免单卡无限增长。旧版 `board.json` 没有这些字段也能直接读，页面按「无派发 / 无投递」渲染。
 
 写入走 `临时文件 + rename`，并且所有变更串行化。修改使用独立副本，保存成功后才更新缓存；失败时缓存与已保存数据保持一致。Windows 上如果目标文件被杀毒 / 索引器短暂占用，会先重试，仍失败就报错并保留原文件，不再退化为复制覆盖。文件损坏时会先复制备份成 `board.json.corrupt-<时间戳>.json` 再重建；备份失败会停止恢复，保留原文件并报错。
+
+`revision` 每次成功保存后递增，并随文件持久化；旧文件没有该字段时从 0 开始。页面对轮询和各项操作的返回值统一比较版本，忽略迟到的旧快照，避免新状态被旧响应覆盖。它用于一个 Host 内的响应排序，不提供多进程同时写同一文件的协调；手动恢复更旧的数据后需刷新页面。
 
 `deliveryRequests` 是投递防重复日志，旧文件没有该字段也可正常读取。它独立于每张卡最近 10 条的显示记录，保留请求 ID、参数摘要及投递状态，不会随卡片历史截断；目前不自动清理，以保持旧请求重试时的防重复能力。
 
@@ -320,12 +325,13 @@ flowchart LR
 node test/verify-host.mjs    # 77 项 Host 行为检查
 node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
 node test/verify-reliability.mjs # 41 项故障注入检查
-node test/verify-client-retry.mjs # 8 项客户端重试检查（最小 hook 模拟）
+node test/verify-client-retry.mjs # 18 项客户端重试/快照/RPC 检查（最小 hook 模拟）
+node test/verify-board-rules.mjs # 36 项多项目归属、校验与版本回归
 ```
 
-`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。故障注入脚本另覆盖磁盘写入失败、损坏备份失败、Windows 锁重试耗尽、并发重复请求及重启后的防重复；客户端重试脚本执行真实页面事件处理函数，模拟响应丢失、刷新页面与成功后新发送。所有脚本都不会碰你真实的 board 文件，CI 会在 Linux / macOS / Windows 三个平台都跑（`.github/workflows/ci.yml`）。
+`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。故障注入脚本另覆盖磁盘写入失败、损坏备份失败、Windows 锁重试耗尽、并发重复请求及重启后的防重复；客户端重试脚本执行真实页面事件处理函数，模拟响应丢失、刷新页面、成功后新发送，以及轮询/修改响应乱序；同时执行插件真实 RPC 适配层，检查成功信封解包、Host 错误与格式错误。看板规则脚本另覆盖多项目决策关联、歧义拒绝、输入校验与版本重启持久化。所有脚本都不会碰你真实的 board 文件，CI 会在 Linux / macOS / Windows 三个平台都跑（`.github/workflows/ci.yml`）。
 
-> 页面视觉没有在自动化里核对（无浏览器控制），仓库内的界面示意是结构草图，不是截图。
+> 自动化脚本不核对页面视觉；2026-11-11 已通过 macOS DSH 原生界面完成链路验证，见[验证记录](docs/verification-2026-11-11.md)。仓库内的界面示意仍是结构草图，不是截图。
 
 ## 目录结构
 
@@ -340,7 +346,8 @@ node test/verify-client-retry.mjs # 8 项客户端重试检查（最小 hook 模
 ├── test/verify-host.mjs     # Host 行为回归（77 项）
 ├── test/check-client.mjs    # Client 静态契约检查
 ├── test/verify-reliability.mjs # 存储与投递异常回归
-├── test/verify-client-retry.mjs # Client 重试与页面重载回归
+├── test/verify-client-retry.mjs # Client 重试、页面重载与响应乱序回归
+├── test/verify-board-rules.mjs # 多项目、任务校验与版本持久化回归
 ├── .github/workflows/ci.yml # CI：push / PR 在 Linux / macOS / Windows 跑全部检查
 ├── CHANGELOG.md
 ├── LICENSE                  # MIT

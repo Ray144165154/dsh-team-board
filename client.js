@@ -593,6 +593,15 @@ window.__ModuleLoader__.load({
         try { window.sessionStorage.removeItem(`team-board:${attempt.key}`) } catch {}
       }
 
+      const acceptBoard = React.useCallback((board) => {
+        if (board === null) return
+        setSnapshot((previous) => {
+          // A delayed poll or mutation response must not roll the board back.
+          if ((previous.board?.revision ?? 0) > (board.revision ?? 0)) return previous
+          return { phase: 'ready', board, error: null }
+        })
+      }, [])
+
       const load = React.useCallback(async (signal) => {
         if (busy.current) return
         busy.current = true
@@ -600,7 +609,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await call('state', {}, signal)
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
         } catch (error) {
           if (!live.current) return
           setSnapshot((previous) => ({
@@ -611,7 +620,7 @@ window.__ModuleLoader__.load({
         } finally {
           busy.current = false
         }
-      }, [call])
+      }, [call, acceptBoard])
 
       const loadSessions = React.useCallback(async () => {
         const seq = sessionLoadSeq.current + 1
@@ -703,7 +712,7 @@ window.__ModuleLoader__.load({
             delete next[id]
             return next
           })
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
           if (value?.warning) setNotice({ tone: 'error', message: value.warning })
         } catch (error) {
           if (live.current) setNotice({ tone: 'error', message: `${t('error.submit')}${error?.message ?? error}` })
@@ -718,7 +727,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await call('setTaskStatus', { id: task.id, status })
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
         } catch (error) {
           if (live.current) setNotice({ tone: 'error', message: `${t('error.status')}${error?.message ?? error}` })
         }
@@ -732,7 +741,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await call('toggleCheck', { taskId, index })
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
         } catch (error) {
           if (live.current) setNotice({ tone: 'error', message: `${t('error.check')}${error?.message ?? error}` })
         } finally {
@@ -748,7 +757,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await call('createProject', { name })
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
           const created = value?.project
           if (created !== null && typeof created === 'object' && typeof created.id === 'string') {
             setSelectedProjectId(created.id)
@@ -770,7 +779,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await call('upsertTask', { projectId, title })
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
           setTaskTitle('')
           setTaskFormOpen(false)
         } catch (error) {
@@ -815,7 +824,7 @@ window.__ModuleLoader__.load({
           const value = await call('dispatchTask', { ...payload, requestId: attempt.requestId })
           if (!value?.warning) finishDelivery(attempt)
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
           if (value?.warning) setNotice({ tone: 'error', message: value.warning })
           // Another task's GO panel may have opened while this request was in
           // flight; only this task's panel may close.
@@ -836,7 +845,7 @@ window.__ModuleLoader__.load({
         try {
           const value = await call('deliverDecision', { id })
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
           if (value?.warning) setNotice({ tone: 'error', message: value.warning })
           const delivery = value?.delivery
           if (delivery?.status !== 'sent') {
@@ -864,7 +873,7 @@ window.__ModuleLoader__.load({
           const value = await call('sendMessage', { ...payload, requestId: attempt.requestId })
           if (!value?.warning) finishDelivery(attempt)
           if (!live.current) return
-          setSnapshot({ phase: 'ready', board: value?.board ?? null, error: null })
+          acceptBoard(value?.board ?? null)
           if (value?.warning) setNotice({ tone: 'error', message: value.warning })
           const delivery = value?.delivery
           const label = delivery?.sessionTitle || t('session.untitled')
@@ -1104,12 +1113,13 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'connection', 'locale'],
       apply(ctx) {
         const translate = ctx.locale.bind(LOCALE_NS)
-        const call = (method, payload, signal) => ctx.connection.rpc.call(
-          '/api',
-          ENDPOINT,
-          { method, payload: payload ?? {} },
-          signal,
-        )
+        const call = async (method, payload, signal) => {
+          const result = await ctx.connection.rpc.call(
+            '/api', ENDPOINT, { method, payload: payload ?? {} }, signal,
+          )
+          if (result?.ok !== true) throw new Error(result?.error?.message ?? 'Invalid team board response')
+          return result.value
+        }
 
         ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'team-board: locale')
         ctx.effect(() => {

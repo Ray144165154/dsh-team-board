@@ -153,6 +153,7 @@ function normalizeBoard(value) {
   const board = value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     version: 1,
+    revision: Number.isSafeInteger(board.revision) && board.revision >= 0 ? board.revision : 0,
     updatedAt: typeof board.updatedAt === 'string' ? board.updatedAt : nowIso(),
     projects: Array.isArray(board.projects) ? board.projects : [],
     decisions: Array.isArray(board.decisions) ? board.decisions : [],
@@ -187,6 +188,7 @@ async function persist(board) {
   await fs.mkdir(boardDirectory(), { recursive: true })
   const file = boardFile()
   const temporary = `${file}.${process.pid}.tmp`
+  board.revision = (cached?.revision ?? board.revision ?? 0) + 1
   try {
     await fs.writeFile(temporary, `${JSON.stringify(board, null, 2)}\n`, 'utf8')
     await replaceBoardFile(temporary, file)
@@ -247,11 +249,10 @@ function text(value, field, options = {}) {
   return trimmed
 }
 
-function optionalNumber(value, field) {
-  if (value === undefined || value === null) return undefined
-  const parsed = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`${field} must be a non-negative number`)
-  return Math.trunc(parsed)
+function optionalCount(value, field) {
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${field} must be a non-negative safe integer`)
+  return value
 }
 
 function projectOf(board, projectId) {
@@ -528,7 +529,8 @@ function dispatchPrompt(task, project, note) {
   if (typeof task.note === 'string' && task.note !== '') lines.push(`当前备注：${task.note}`)
   if (typeof note === 'string' && note !== '') lines.push(`人的补充：${note}`)
   lines.push('')
-  lines.push('请接单：先用 collab_board_read 读取这块协作台（这条任务已经置为 doing）；完成一项验收就用 collab_task_upsert 的 doneChecks 勾掉；需要人拍板时用 collab_decision_ask 发卡（人的答案会自动回到这个会话）。')
+  lines.push(`请接单：先用 collab_board_read(${JSON.stringify({ projectId: project.id })}) 读取项目；用 collab_task_upsert 更新任务时携带 ${JSON.stringify({ taskId: task.id, projectId: project.id })}，完成验收时填写 doneChecks。`)
+  lines.push(`需要人拍板时用 collab_decision_ask 发卡，必须携带 ${JSON.stringify({ taskId: task.id, projectId: project.id })} 及问题 title（人的答案会自动回到这个会话）。`)
   return lines.join('\n')
 }
 
@@ -674,6 +676,7 @@ async function createProject(input) {
 async function upsertTask(input) {
   const requestedId = text(input?.taskId, 'taskId', { max: 64 })
   const title = text(input?.title, 'title', { max: 200 })
+  if (title === '') throw new Error('title must not be empty')
   const note = text(input?.note, 'note', { max: 4000 })
   const commander = text(input?.commander, 'commander', { max: 64 })
   const executor = text(input?.executor, 'executor', { max: 64 })
@@ -682,8 +685,10 @@ async function upsertTask(input) {
   if (status !== undefined && !TASK_STATUSES.includes(status)) {
     throw new Error(`status must be one of ${TASK_STATUSES.join(', ')}`)
   }
-  const passed = optionalNumber(input?.progressPassed, 'progressPassed')
-  const total = optionalNumber(input?.progressTotal, 'progressTotal')
+  const passed = optionalCount(input?.progressPassed, 'progressPassed')
+  const total = optionalCount(input?.progressTotal, 'progressTotal')
+  if (input?.checks !== undefined && !Array.isArray(input.checks)) throw new Error('checks must be an array')
+  if (input?.doneChecks !== undefined && !Array.isArray(input.doneChecks)) throw new Error('doneChecks must be an array')
   const checks = Array.isArray(input?.checks)
     ? input.checks.map((entry) => {
       const label = text(typeof entry === 'string' ? entry : entry?.label, 'checks[].label', { required: true, max: 500 })
@@ -697,12 +702,14 @@ async function upsertTask(input) {
 
   return serialize(async () => {
     const board = await readBoard()
-    const project = projectOf(board, text(input?.projectId, 'projectId', { max: 64 }))
+    const projectId = text(input?.projectId, 'projectId', { max: 64 })
     let task
     if (requestedId !== undefined) {
       task = board.tasks.find((entry) => entry.id === requestedId)
       if (task === undefined) throw new Error(`unknown task ${requestedId}`)
+      if (projectId !== undefined && task.projectId !== projectId) throw new Error('task does not belong to projectId')
     } else {
+      const project = projectOf(board, projectId)
       if (title === undefined) throw new Error('title is required when creating a task')
       task = {
         id: nextId(board.tasks, 'T', 3),
@@ -741,10 +748,12 @@ async function upsertTask(input) {
     }
     // The acceptance list is the source of truth for progress: an agent that
     // reports doneChecks must not leave the card at its old 0/N.
-    if (checks !== undefined || doneChecks !== undefined) {
+    if (checks !== undefined || doneChecks !== undefined || task.checks?.length > 0) {
       const list = Array.isArray(task.checks) ? task.checks : []
       task.progress = { passed: list.filter((entry) => entry.ok === true).length, total: list.length }
     }
+    task.progress ??= { passed: 0, total: 0 }
+    if (task.progress.passed > task.progress.total) throw new Error('progressPassed must not exceed progressTotal')
     task.updatedAt = nowIso()
     board.updatedAt = nowIso()
     await persist(board)
@@ -808,7 +817,24 @@ async function askDecision(input, source) {
   const detail = text(input?.detail, 'detail', { max: 4000 }) ?? ''
   return serialize(async () => {
     const board = await readBoard()
-    const project = projectOf(board, text(input?.projectId, 'projectId', { max: 64 }))
+    const taskId = text(input?.taskId, 'taskId', { max: 64 })
+    const projectId = text(input?.projectId, 'projectId', { max: 64 })
+    let task = taskId === undefined ? undefined : board.tasks.find((entry) => entry.id === taskId)
+    if (taskId !== undefined && task === undefined) throw new Error(`unknown task ${taskId}`)
+    if (task !== undefined && projectId !== undefined && task.projectId !== projectId) {
+      throw new Error('task does not belong to projectId')
+    }
+    if (task === undefined && projectId === undefined && source?.sessionId) {
+      const candidates = board.tasks.filter((entry) => entry.status === 'doing'
+        && entry.dispatches?.at(-1)?.sessionId === source.sessionId
+        && entry.dispatches.at(-1).status === 'sent')
+      if (candidates.length > 1) throw new Error('multiple active tasks in this session; supply taskId or projectId')
+      task = candidates[0]
+    }
+    if (task === undefined && projectId === undefined && board.projects.length > 1) {
+      throw new Error('multiple projects; supply taskId or projectId')
+    }
+    const project = projectOf(board, task?.projectId ?? projectId)
     const decision = {
       id: nextId(board.decisions, 'D', 1),
       projectId: project.id,
@@ -819,6 +845,7 @@ async function askDecision(input, source) {
       createdAt: nowIso(),
       answeredAt: null,
     }
+    if (task !== undefined) decision.taskId = task.id
     if (typeof source?.sessionId === 'string' && source.sessionId !== '') {
       decision.sourceSessionId = source.sessionId
       decision.sourceSessionTitle = typeof source.sessionTitle === 'string' ? source.sessionTitle : ''
@@ -871,8 +898,8 @@ function registerTools(ctx) {
         commander: { type: 'string', description: 'Who directs the task.' },
         executor: { type: 'string', description: 'Who executes it.' },
         reviewer: { type: 'string', description: 'Who accepts it.' },
-        progressPassed: { type: 'number', description: 'Passed acceptance checks.' },
-        progressTotal: { type: 'number', description: 'Required acceptance checks.' },
+        progressPassed: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: 'Passed count; derived from checks when a checklist exists.' },
+        progressTotal: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: 'Total count; must be at least passed. Derived from checks when a checklist exists.' },
         checks: {
           type: 'array',
           items: { type: 'string' },
@@ -901,7 +928,8 @@ function registerTools(ctx) {
       properties: {
         title: { type: 'string', description: 'Short question title.' },
         detail: { type: 'string', description: 'Context the human needs to decide. **bold** is supported.' },
-        projectId: { type: 'string', description: 'Project id; defaults to the first project.' },
+        projectId: { type: 'string', description: 'Project id. Must match taskId when both are supplied. Required if task/session context is ambiguous.' },
+        taskId: { type: 'string', description: 'Task this question blocks. Determines the project; always pass this for dispatched work.' },
       },
       required: ['title'],
       additionalProperties: false,

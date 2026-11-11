@@ -30,3 +30,4 @@ jobs:
       - run: node test/check-client.mjs
       - run: node test/verify-reliability.mjs
       - run: node test/verify-client-retry.mjs
+      - run: node test/verify-board-rules.mjs
