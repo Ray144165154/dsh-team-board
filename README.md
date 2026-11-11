@@ -2,357 +2,163 @@
 
 [![CI](https://github.com/Ray144165154/dsh-team-board/actions/workflows/ci.yml/badge.svg)](https://github.com/Ray144165154/dsh-team-board/actions/workflows/ci.yml)
 
-> 给多 agent 协作装一块人人能看懂的看板：**agent 登记任务、推进验收；人负责把任务派发出去、把决定拍下来。**
+**在 DeepSeek Harness 里，用一块看板管理多个 AI 会话的任务、进度和待决策事项。**
 
-这是一个 DeepSeek Harness（DSH，本地运行的桌面 agent 应用）插件，装好后侧边栏会多一个「协作台」入口：
+当你同时让几个 agent 做事时，任务往往散在不同对话里：谁在做、做到哪一步、哪个问题等你决定，都要翻聊天记录才能找到。协作台把这些信息集中起来，让你在 DSH 侧边栏就能派发任务、查看验收进度，并把决定发回对应会话。
 
-- **GO 派发**：任务卡上点 `GO`，选一个已打开的会话，任务会被真的推给那个 agent——状态自动转 `doing`，并记下派发目标。
-- **人机传话**：拍板答案会自动发回提问的会话；页面底部的「传话」框可以把人的一句话直接发进指定 agent 的会话。
-- **待拍板**：agent 卡住时抛出的问题卡片，由人填答案；答案留在板上，同时投递给提问的会话。
-- **任务卡**：每条任务带 `指挥 / 执行 / 验收` 三个角色、状态胶囊、进度 `0/3` 和验收清单，验收项点一下就能勾。
-- **多项目**：顶部可切换项目、直接新建项目；任务也能在页面里建，不依赖 agent。
-- **三个工具**：`collab_board_read`、`collab_task_upsert`、`collab_decision_ask`，任何 agent 都能读写这块板。
+它适合「一个人 + 几个 AI agent」的本地协作。安装后，DSH 侧边栏会新增一个 **协作台** 入口。
 
-<details>
-<summary>English TL;DR</summary>
+[安装使用](#安装使用) · [工具与接口](docs/reference.md) · [真机验证](docs/verification-2026-11-11.md) · [更新日志](CHANGELOG.md)
 
-A DeepSeek Harness plugin that turns multi-agent collaboration into one shared board.
-Agents register tasks (commander / executor / reviewer, status, acceptance checks) and post
-decision cards; the human answers those cards and nothing else. A task card's `GO` button
-pushes the task into a live agent session, decision answers are relayed back to the asking
-session automatically, and a compose box sends a free-text human message into any open
-session. Three tools expose the board to any agent; the human-only answer path stays out of
-the tool surface. Projects, tasks and acceptance checks are also editable from the page
-itself. State is a plain JSON file under `$DSH_HOME`. Host + Client halves, no build step,
-no dependencies.
+## 你可以用它做什么
 
-</details>
+| 你想做的事 | 协作台怎么帮忙 |
+| --- | --- |
+| 把任务交给某个 agent | 在任务卡上点 **GO**，选择已打开的会话，任务说明会直接投递过去 |
+| 看清任务进度 | 卡片显示 TODO / DOING / DONE、验收清单和通过数；人可以勾选，agent 也能通过工具更新 |
+| 处理 agent 的疑问 | agent 发出一张「待拍板」卡，你在页面回答，答案自动发回提问会话并留档 |
+| 临时补充一句要求 | 用「传话」向指定会话发送消息，例如“先完成后端，前端暂缓” |
+| 同时管理几件事 | 新建、切换项目，按项目查看目标、任务和决策；任务相关问题可以关联任务 ID |
+| 让新会话接手 | agent 先读取看板，了解任务分工、验收项和已记录的决定 |
 
----
+任务数据包含「指挥、执行、验收」三个角色字段，用来记录分工；它们不会自动创建 agent、限制工具权限或检查代码是否真的通过验收。
 
-## 它解决什么问题
+## 一次协作怎么进行
 
-多 agent 协作的常见分工是：一个 agent 当指挥拆任务，另一个当执行写代码，人做验收。流程本身没问题，问题出在**信息散在各处**：
+以“给学习网站增加深色模式”为例：
 
-| 麻烦 | 没有看板时 | 有了看板 |
-| --- | --- | --- |
-| 决策 | 人拍板的话淹没在某个会话里，别的 agent 看不到 | 拍板变成卡片，答案自动发回提问的会话，也留在板上 |
-| 调度 | 任务写完还得有人复制到 agent 会话里 | 任务卡上点 `GO`，选会话即派发 |
-| 回话 | 想补一句话得切到对应会话再打一遍 | 「传话」框直接发进指定会话 |
-| 状态 | 任务进行到哪一步要翻会话记录 | 任务卡上写着 `DOING`、`0/3`、验收清单 |
-| 角色 | 谁指挥、谁执行、谁验收说不清 | 卡上固定三个字段 |
-| 交接 | 换一个 agent / 新开会话，前面聊的等于没发生 | 新 agent 先 `collab_board_read` 就能接上 |
-
-一句话：**把「agent 干活、人拍板」这件事从聊天记录里拎出来，变成一块有结构的板。**
-
-## 界面说明
-
-```
-AHP 协作台                                        [ 刷新 ]
-项目 2 · 进行中 2 · 待拍板 4
-项目 [ AHP 协作台 ▾ ]  [ 新建项目 ]
-──────────────────────────────────────────────────────────
-目标      现在只有「多次对比时」才统计细菌计数，改成：单次检查
-          做完 AI 分析后，也用同一套计数代码统计这份数据。
-当前任务  T-078
-──────────────────────────────────────────────────────────
-待拍板 4
-
-1  什么时候数                                            待定
-   AI 分析完成后自动数，跟在分析任务里，不加按钮
-   ┌────────────────────────────────────────────────┐
-   │ 你的拍板...                                     │
-   └────────────────────────────────────────────────┘
-   [ 提交拍板 ]
-
-4  AI 方案文字要不要提细菌量                              已定
-   不动方案文字，只在分析区和报告里显示数字
-   拍板结果：同意
-   ✓ 已传达 · 执行会话 · 21:04:12
-──────────────────────────────────────────────────────────
-任务 2                                            [ 新建任务 ]
-
-T-078  后端：AI 分析后自动统计细菌计数，并提供读取接口   DOING  [ GO ]
-       指挥 · claude    执行 · deepseek    验收 0/3
-       已派发 · 执行会话 · 21:05:30
-       ○ 新测试全过：pytest 550 → 只增不减；ruff 0；…
-       ○ git diff 只有 owns 里的文件；counting/** 0 改动
-       ○ 读码：全仓只有 QuantityService.count_media 一处调用
-──────────────────────────────────────────────────────────
-传话                                           [ 刷新会话 ]
-会话 [ 执行会话 · 空闲 ▾ ]
-┌──────────────────────────────────────────────────────┐
-│ 把一句话发进这个会话…                                 │
-└──────────────────────────────────────────────────────┘
-[ 发送 ]  已投递 · 执行会话 · 21:06:02
-──────────────────────────────────────────────────────────
-```
-
-示意图里的 `○` 是可点的验收项，`GO` 用来把任务派发到某个已打开的会话。交互上一共八处：**填拍板并提交**、**点 `GO` 派发任务**、**底部传话**、**点验收项**（`○ → ●`，进度自动重算）、**点状态胶囊**（`TODO → DOING → DONE`）、**切换 / 新建项目**、**新建任务**、**刷新**（页面也会每 6 秒自动轮询，切回窗口时立即刷新）。
-
-派发和传话只会出现在「已打开（live）」的会话上：DSH 的会话要先被加载成 live agent，才能接收新消息。页面里的会话下拉会读出会话标题、运行 / 空闲状态；Agent Teams 的队友会话也会列出来（标记为「队友」），临时 subagent 会话则被过滤掉。切换会话后如果列表变了，点一下「刷新会话」。
-
-## 工作流
+1. **登记任务。** 你在页面新建任务，或让指挥 agent 通过工具写入标题、分工和验收清单。
+2. **派发工作。** 先在 DSH 打开执行会话，再回到任务卡点 GO，选择这个会话。
+3. **等待拍板。** 执行 agent 遇到“默认跟随系统，还是让用户手动切换”的问题，用工具发出决策卡。
+4. **给出答案。** 你在协作台填写决定，答案会自动投回提问会话，agent 据此继续。
+5. **确认结果。** agent 报告通过的验收项，你查看结果、补充传话或调整任务状态。
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant C as 指挥 agent
+    participant H as 你
     participant B as 协作台
-    participant H as 你（人）
-    participant E as 执行 agent
-
-    C->>B: collab_task_upsert 建 T-078，写 3 条验收
-    H->>B: 在任务卡上点 GO，选执行会话
-    B->>E: 把任务 prompt 投进 E 的会话（一条 user 消息）
-    E->>B: collab_board_read 接单，状态改 doing、报进度
-    E->>B: collab_decision_ask 卡在「什么时候数」
-    B-->>H: 页面出现一张「待定」卡
-    H->>B: 填拍板，提交
-    B->>E: 答案自动投回 E 的会话
-    E->>B: collab_task_upsert doneChecks 勾掉验收
+    participant A as 执行 agent
+    H->>B: 新建任务，点 GO 选择会话
+    B->>A: 投递任务说明
+    A->>B: 更新验收进度，提出待决策问题
+    H->>B: 填写拍板答案
+    B->>A: 自动回投答案
+    A->>B: 继续执行，更新任务结果
 ```
 
-角色边界也在这一张图里：
+**“已投递”表示消息进入了目标会话的收件箱。** 是否处理完成，要看 agent 的回复、任务状态和验收结果。
 
-- **指挥 / 执行** 通过工具写板；
-- **验收** 是卡上的字段，人可以点状态胶囊直接改；
-- **拍板只有人能回答**——`answerDecision` 只开在页面这条通道上，**没有对应的 agent 工具**。但答案不再是「等 agent 自己想起来读」：提交时 Host 会把答案作为一条 user 消息投递给提问的会话，agent 下一轮就能看到。这是设计里的「最后一公里」，见下方「设计取舍」。
+## 安装使用
 
-## 架构
+需要先安装 **DeepSeek Harness（DSH）Desktop**。本插件已在 DSH **0.2.2-rc.1** 上验证，其他版本的宿主接口兼容性尚未确认。
 
-```mermaid
-flowchart LR
-    A[agent 会话] -- 工具调用 --> H[Host：index.js]
-    P[协作台页面] -- "POST /api/dsh-team-board" --> H
-    H -- "followup / steer（派发、传话、拍板结果）" --> A
-    H -- 读 / 写 --> F[(board.json)]
-```
-
-- **Host 半边**（`index.js`）：唯一的数据规则实现方。持久化、三个工具、RPC 路由，以及把人的动作投递进 live 会话的「最后一公里」。
-- **Client 半边**（`client.js`）：往 `sidebar.panellist` 注册图标、往 `main` 注册页面，用宿主主题变量画 UI。
-- 页面和工具走的是**同一批 Host 函数**，所以页面提交的拍板、agent 写的任务不会各算各的。
-- 投递走 DSH 的 `agents` 服务：`agents.get(sessionId)` 拿到 live agent，再用 `agent.followup(message)` 把消息放进它的收件箱（运行中的 agent 可选 `steer`）。投递成功只代表消息被收件箱接收，不代表 agent 已经处理。
-
-## 快速开始
-
-**前提**：DSH Desktop（Web UI 的 profile），本插件在 **0.2.2-rc.1** 上开发验证，其它版本未测。升级到 v0.3 后需要重启一次 DSH（Host 半边的投递代码要重新加载）；只刷新页面不会换掉运行中的 Host。
-
-**跨平台**：Host 只用 Node 内置模块（`node:fs` / `node:os` / `node:path` / `node:crypto`），Client 只用标准 DOM 与 DSH 主题变量，设计上对 macOS / Windows / Linux 的 DSH Desktop 通用；CI 在 `ubuntu-latest`、`macos-latest`、`windows-latest` 三个平台跑同一套测试。macOS 已实机跑通看板读取、多项目派发、决策自动归属、拍板回投和传话（[验证记录](docs/verification-2026-11-11.md)）；Windows / Linux 的 DSH 真机投递尚未实测，CI 用 fake context 覆盖 Host 行为与 Client 契约。派发 / 传话依赖各平台同版本的 `agents` / `sessions` 服务；Agent Teams 是可选增强，没有它只是不显示队友会话。
-
-1. 把本仓库克隆到本地任意目录：
-
-   ```bash
-   git clone https://github.com/Ray144165154/dsh-team-board.git
-   cd dsh-team-board
-   ```
-
-2. 在 DSH 里对 agent 说一句（路径换成你本机的绝对路径）：
-
-   > 把 `/绝对路径/dsh-team-board` 作为 bundle 安装到当前 profile。
-
-   它会在内部调用 `plugin_manager install_bundle`，把包 link 进 profile。
-
-3. 侧边栏出现「协作台」→ 点进去。没出现就刷新一次页面（新装的 Client 模块需要重新加载）。
-
-装好后 `collab_*` 三个工具会出现在所有 agent 的工具列表里，不需要额外配置。
-
-**卸载**：在插件页移除 `@local/dsh-team-board`，或让 agent `plugin_manager remove_bundle`。
-**重置数据**：删掉 `~/.dsh/team-board/board.json`，下次读取会重新生成一份示例看板。
-
-## agent 工具参考
-
-三个工具都返回纯 JSON，可以直接被下一步的模型读。
-
-### `collab_board_read`
-
-读整块板；给 `projectId` 就只读一个项目。
-
-```json
-{}
-```
-
-```json
-{ "projectId": "P-1" }
-```
-
-返回 `{ projects, decisions, tasks }`（单项目时返回 `{ project, decisions, tasks }`）。已拍板的卡带 `status: "answered"` 和 `answer`。
-
-### `collab_task_upsert`
-
-建任务或更新任务。**不给 `taskId` 就是新建**（自动分配 `T-080` 这样的 id）。
-
-```json
-{
-  "title": "工作台分析区显示细菌计数图",
-  "checks": ["图能渲染", "空数据显示占位"],
-  "progressTotal": 2,
-  "commander": "claude",
-  "executor": "deepseek"
-}
-```
-
-```json
-{
-  "taskId": "T-078",
-  "status": "doing",
-  "doneChecks": ["图能渲染"],
-  "progressPassed": 1,
-  "note": "等前端联调"
-}
-```
-
-| 参数 | 类型 | 说明 |
-| --- | --- | --- |
-| `taskId` | string | 已有任务 id；省略则新建 |
-| `projectId` | string | 新建时省略用第一个项目；更新时必须与已有任务所属项目一致 |
-| `title` | string | 标题（新建时必填；提供时不能是空白） |
-| `status` | `todo` \| `doing` \| `done` | 状态 |
-| `commander` / `executor` / `reviewer` | string | 三个角色 |
-| `progressPassed` / `progressTotal` | integer | 非负安全整数，手动进度须满足通过数 ≤ 总数；有验收清单时以清单计算结果为准 |
-| `checks` | string[] | 验收项全量替换；**同名的完成态会保留** |
-| `doneChecks` | string[] | 本次标记通过的验收项 |
-| `note` | string | 卡上的备注 |
-
-### `collab_decision_ask`
-
-发一张待拍板卡。**一个问题一张卡**，标题短一点。任务相关的问题请携带 `taskId`，决策卡会记录任务关联，并从任务确定项目；同时提供 `projectId` 时两者必须一致。
-
-```json
-{ "taskId": "T-078", "projectId": "P-1", "title": "什么时候数", "detail": "**AI 分析完成后自动数**，跟在分析任务里，不加按钮" }
-```
-
-`taskId` 和 `projectId` 都省略时，如果提问会话仅有一条仍在进行的派发任务，会自动关联该任务；单项目、无派发上下文时仍默认用唯一项目。会话对应多条进行中任务，或多项目下无法确定归属时，会要求显式提供 `taskId` 或 `projectId`，不会悄悄归入第一个项目。派发提示中已给出准确参数。
-
-`detail` 支持 `**加粗**`。工具会记下调用它的会话；人提交拍板后，Host 把答案作为一条 user 消息**自动投回那个会话**（`decision.sourceSessionId` / `decision.delivery` 可在板上看到）。Team 队友会直接唤醒；普通 subagent 结束回合后会被回收，所以它提的问题会转投到顶层父会话。agent 仍然可以用 `collab_board_read` 回读，但不需要靠轮询才能知道答案。
-
-## 页面 RPC
-
-页面的每个动作都对应 Host 上一个方法，和 agent 工具共享同一批底层函数。RPC 走浏览器已认证的 `POST /api/dsh-team-board`，统一返回 `{ ok: true, value }` 或 `{ ok: false, error }` 信封。
-
-| 方法 | 载荷 | 返回 | 谁用 |
-| --- | --- | --- | --- |
-| `state` | `{}` | `{ board }` | 页面轮询 |
-| `listSessions` | `{}` | `{ sessions: [{ id, title, cwd, status, kind, createdAt, events }] }` | 页面：派发 / 传话的会话下拉 |
-| `answerDecision` | `{ id, answer }` | `{ board, delivery? }` | 页面（**只有人**）；有提问会话时自动投递答案 |
-| `deliverDecision` | `{ id, force? }` | `{ board, delivery }` | 页面：未送达时重发；已送达的默认拒绝，`force: true` 才重复发送 |
-| `setTaskStatus` | `{ id, status }` | `{ board }` | 页面 |
-| `toggleCheck` | `{ taskId, index, ok? }` | `{ board }` | 页面；省略 `ok` 则翻转，并按勾选结果重算 `progress` |
-| `createProject` | `{ name, goal? }` | `{ board, project }` | 页面 / 新建项目 |
-| `upsertTask` | 同 `collab_task_upsert` | `{ board, task }` | 页面 / 新建任务 |
-| `dispatchTask` | `{ taskId, sessionId, requestId, note?, mode? }` | `{ board, task, delivery }` | 页面 `GO`：把任务 prompt 投进会话，任务转 `doing` |
-| `sendMessage` | `{ sessionId, text, requestId, taskId?, mode? }` | `{ board, task?, delivery }` | 页面「传话」：把人的一句话投进会话 |
-
-`dispatchTask` / `sendMessage` 必须携带非空的 `requestId`（建议 UUID，最长 200 字符）。同一次操作重试必须沿用它；明确发起另一条消息时才换新 ID。相同 ID、相同参数的已成功请求返回原投递结果，不重复发送；相同 ID 改参数会报错。页面会自动管理 ID，并在响应丢失或出现投递警告时保留到当前 tab 的 `sessionStorage`，刷新页面后也能沿用。升级这项 RPC 契约后，请重启 DSH 并刷新页面，让 Host / Client 同时更新。
-
-发送前先持久化 `deliveryRequests` 意图记录，发送后再保存回执。如果回执保存失败，返回成功结果及 `warning`，页面提示先核对目标会话；磁盘上的 `pending` 记录阻止同一请求再次发送，重启后仍有效。`pending` 表示投递结果不确定，可能是发送前进程退出，也可能是已发送但回执未保存；不会自动重发。核对会话后，可用新 ID 明确发起一次新发送；拍板可在核对后显式用 `force: true` 重发。此机制不保证宿主收件箱与看板之间的事务性「恰好一次」投递。
-
-`mode` 默认 `queue`（agent 下一轮处理）；传 `steer` 时，若 agent 正在运行，会在最近的步骤边界插入。`delivery` 形如 `{ status: "sent" | "failed", sessionId, sessionTitle, mode, at, error? }`。
-
-## 数据
-
-一块板就是一个 JSON 文件，默认在 `~/.dsh/team-board/board.json`（`$DSH_HOME` 存在时优先用它；Windows 上是 `%USERPROFILE%\.dsh\team-board\board.json`）：
-
-```jsonc
-{
-  "version": 1,
-  "revision": 12,
-  "updatedAt": "2026-11-04T08:08:10.518Z",
-  "projects": [{ "id": "P-1", "name": "AHP 协作台", "goal": "…", "currentTask": "T-078" }],
-  "decisions": [{
-    "id": "D-1", "title": "什么时候数", "status": "answered", "answer": "分析完成后自动数",
-    "sourceSessionId": "session-…", "sourceSessionTitle": "执行会话",
-    "delivery": { "status": "sent", "sessionId": "session-…", "sessionTitle": "执行会话", "mode": "queue", "at": "2026-11-04T08:20:00.000Z" }
-  }],
-  "tasks": [{
-    "id": "T-078", "title": "后端：…", "status": "doing",
-    "commander": "claude", "executor": "deepseek", "reviewer": "human",
-    "progress": { "passed": 0, "total": 3 },
-    "checks": [{ "label": "新测试全过", "ok": false }],
-    "dispatches": [{ "status": "sent", "sessionId": "session-…", "sessionTitle": "执行会话", "mode": "queue", "at": "…", "note": "先跑测试" }],
-    "messages": [{ "text": "先别动前端", "at": "…", "sessionId": "session-…", "sessionTitle": "执行会话" }]
-  }]
-}
-```
-
-`dispatches` 只保留最近 10 条，`messages` 也只保留最近 10 条，避免单卡无限增长。旧版 `board.json` 没有这些字段也能直接读，页面按「无派发 / 无投递」渲染。
-
-写入走 `临时文件 + rename`，并且所有变更串行化。修改使用独立副本，保存成功后才更新缓存；失败时缓存与已保存数据保持一致。Windows 上如果目标文件被杀毒 / 索引器短暂占用，会先重试，仍失败就报错并保留原文件，不再退化为复制覆盖。文件损坏时会先复制备份成 `board.json.corrupt-<时间戳>.json` 再重建；备份失败会停止恢复，保留原文件并报错。
-
-`revision` 每次成功保存后递增，并随文件持久化；旧文件没有该字段时从 0 开始。页面对轮询和各项操作的返回值统一比较版本，忽略迟到的旧快照，避免新状态被旧响应覆盖。它用于一个 Host 内的响应排序，不提供多进程同时写同一文件的协调；手动恢复更旧的数据后需刷新页面。
-
-`deliveryRequests` 是投递防重复日志，旧文件没有该字段也可正常读取。它独立于每张卡最近 10 条的显示记录，保留请求 ID、参数摘要及投递状态，不会随卡片历史截断；目前不自动清理，以保持旧请求重试时的防重复能力。
-
-## 设计取舍
-
-- **拍板只能人做。** 决策权是这个插件的核心价值，如果 agent 也能回答自己的问题，看板就退化成日志。所以答案通道只开在页面 RPC 上。
-- **数据是插件的，不是会话日志的一部分。** 好处是跨会话、跨 agent 共享；代价是 fork/恢复某个会话不会带着板的历史。
-- **不做数据库。** 单文件 JSON 在「一个人 + 几个 agent」的规模下够用，坏了也能手改。要多人并发再换存储。
-- **轮询而不是推送。** 6 秒轮询一行代码，不需要维护 SSE 连接和重连；页面上的改动频率本来就不高。
-- **只投递给 live 会话。** 派发 / 传话要求目标会话已经在 DSH 里打开成 live agent；关闭的持久会话不能凭空接收消息。这样 v0.3 不需要自己造会话、选模型、建目录，失败时也能给出明确原因。想派发给冷会话，先在侧边栏打开它。
-- **投递是「收件箱接收」，不是「已处理」。** `followup` 返回只代表消息进了 agent 的 inbox；页面上写「已投递」而不是「已完成」。真正的完成状态仍然看任务卡和验收清单。
-- **答案既投递又留档。** 拍板结果会进会话，但不会从板上消失；会话没开 / 投递失败时，答案照样保存，页面提供「重发」。
-- **零依赖、无构建。** 两个纯 JS 文件 + 清单，装完即用，升级不会因为依赖漂移挂掉。投递只调用 Host 注入的 `agents` / `sessions` / `sessionTitle` 服务，不 import 任何 DSH 包。
-
-## 已知限制
-
-- 没有权限模型：能打开这块页面的人都能拍板、都能改任务（本地单机场景）。
-- 没有审计/撤销：拍板、改状态、勾验收项的历史都没有留存。
-- 没有删除/归档：项目和任务只能新增与修改，不能删。
-- 没有推送：另一个 tab 改了，本 tab 最多晚 6 秒（轮询）。
-- 多项目只是切换展示：目标卡、待拍板、任务都按当前选中的项目过滤；顶部「待拍板 N」是全局计数。
-- 只能投递给已打开的会话：冷会话要先在侧边栏打开；v0.3 不会替你新建会话或切换目录。
-- v0.3 之前创建的待拍板卡没有记录提问会话，回答只留档、不会自动回投；升级后新发的卡才带来源。
-- 会话列表是打开面板时读一次：新开的会话要手动点「刷新会话」（切回窗口也会自动刷新）。
-- 投递失败不会自动重试：明确失败的请求可沿用 ID 重试；结果不确定的 `pending` 请求必须先核对目标会话。
-- 防重复按请求 ID 生效：主动换新 ID、另一 tab 发起新请求，或显式强制重发仍会发送新消息。投递日志目前持续增长。
-- Windows / Linux 的 DSH 真机投递尚未实测：CI 用 fake context 验证 Host 行为与 Client 契约；macOS 真机已验证。
-
-## 路线图
-
-- [x] **GO 派发**：点一下把任务真的推给某个会话 / agent（v0.3）
-- [x] 人机传话：把人的一句话直接发进指定 agent 的会话，拍板答案自动回投（v0.3）
-- [ ] 派发时新建会话（选目录 / 选模型）
-- [ ] tokens / 工具调用数统计到任务卡
-- [x] 验收项逐条点击勾选（v0.2）
-- [x] 多项目切换与新建（v0.2）
-- [ ] 项目 / 任务的删除与归档
-- [ ] SSE 实时推送
-
-## 开发与验证
+### 1. 下载项目
 
 ```bash
-node test/verify-host.mjs    # 77 项 Host 行为检查
-node test/check-client.mjs   # 14 项静态契约检查（无浏览器、无 React）
-node test/verify-reliability.mjs # 41 项故障注入检查
-node test/verify-client-retry.mjs # 18 项客户端重试/快照/RPC 检查（最小 hook 模拟）
-node test/verify-board-rules.mjs # 36 项多项目归属、校验与版本回归
+git clone https://github.com/Ray144165154/dsh-team-board.git
+cd dsh-team-board
 ```
 
-`verify-host` 用假 Cordis context + 临时 `DSH_HOME` 加载 Host 半边，覆盖 RPC 信封、并发首读、拍板 / 改状态 / 勾验收、新建项目与任务、错误码、三个工具、重启后持久化；投递相关用例用假 `agents` / `sessions` / `sessionTitle` / `agentTeams` 服务，断言消息对象、任务状态、`dispatches`、答案回投、失败后重发。`check-client` 读 `client.js` 文本，校验中英文案键对齐、只调用约定的 RPC 方法、槽位注册、样式只用主题变量。故障注入脚本另覆盖磁盘写入失败、损坏备份失败、Windows 锁重试耗尽、并发重复请求及重启后的防重复；客户端重试脚本执行真实页面事件处理函数，模拟响应丢失、刷新页面、成功后新发送，以及轮询/修改响应乱序；同时执行插件真实 RPC 适配层，检查成功信封解包、Host 错误与格式错误。看板规则脚本另覆盖多项目决策关联、歧义拒绝、输入校验与版本重启持久化。所有脚本都不会碰你真实的 board 文件，CI 会在 Linux / macOS / Windows 三个平台都跑（`.github/workflows/ci.yml`）。
+插件本身没有额外的运行时依赖，也没有构建步骤；React、会话和工具服务由 DSH 提供。
 
-> 自动化脚本不核对页面视觉；2026-11-11 已通过 macOS DSH 原生界面完成链路验证，见[验证记录](docs/verification-2026-11-11.md)。仓库内的界面示意仍是结构草图，不是截图。
+### 2. 安装到 DSH
 
-## 目录结构
+在 DSH 中让 agent 执行下面的要求，把路径换成你自己的绝对路径：
 
+> 把 `/绝对路径/dsh-team-board` 作为 bundle 安装到当前 profile。
+
+Windows 路径示例为 `C:\Users\你的用户名\Projects\dsh-team-board`。安装由宿主的 `plugin_manager install_bundle` 完成；协作台的三个工具随后会注册到该 profile。
+
+安装是链接到本地目录的方式，请保留这个目录。更新代码后，**重启 DSH，再刷新页面**，确保 Host 和 Client 同时加载新版。
+
+### 3. 打开协作台
+
+在 DSH 侧边栏点击 **协作台**。首次读取会生成示例项目、任务和问题，供你了解界面；示例不会自行开始执行。可以点击「新建项目」开始自己的工作。
+
+派发前先打开目标会话。如果下拉框里没有它，点击「刷新会话」。列表包含已加载的普通会话和可用的 Agent Teams 队友，不包含临时 subagent。
+
+## 平台支持与验证
+
+| 平台 | 当前证据 | 尚未覆盖 |
+| --- | --- | --- |
+| macOS | 自动化检查通过；DSH 0.2.2-rc.1 真机跑通看板读取、多项目派发、决策归属、拍板回投和传话 | 其他 DSH 版本 |
+| Windows | 三平台 CI 中的 Windows 检查通过；实现未使用 macOS 专属接口 | DSH 真机界面和完整投递流程 |
+| Linux | 三平台 CI 中的 Linux 检查通过；实现未使用 macOS 专属接口 | DSH 真机界面和完整投递流程 |
+
+Windows / Linux 在实现上具备跨平台基础，但模拟测试通过不能代替宿主真机验证。macOS 的具体检查过程见[真机验证记录](docs/verification-2026-11-11.md)。
+
+## 给 agent 的三个工具
+
+| 工具 | 用途 |
+| --- | --- |
+| `collab_board_read` | 读取全板或指定项目的任务、目标和决策 |
+| `collab_task_upsert` | 新建或更新任务、角色、验收项与备注 |
+| `collab_decision_ask` | 提出需要人回答的问题，并记录来源会话 |
+
+你可以对 agent 这样说：
+
+> 先用 collab_board_read 读取看板。在我指定的项目中登记任务，写清验收项；需要我决定时，用 collab_decision_ask 发卡并携带 taskId。每完成一项验收，就用 collab_task_upsert 更新 doneChecks。
+
+多项目协作时，建议始终携带明确的项目或任务 ID。上下文不唯一时，工具会要求补充归属，避免问题落进错误项目。拍板没有对应的 agent 回答工具，按设计由人在页面完成；本插件尚未提供独立的权限隔离模型。
+
+完整参数、JSON 示例、RPC 契约及数据格式见[开发与接口参考](docs/reference.md)。
+
+## 数据保存与异常处理
+
+看板保存在本机的一个 JSON 文件中：
+
+| 环境 | 默认位置 |
+| --- | --- |
+| macOS / Linux | `~/.dsh/team-board/board.json` |
+| Windows | `%USERPROFILE%\.dsh\team-board\board.json` |
+| 自定义 DSH_HOME | `DSH_HOME` 对应目录下的 `team-board/board.json` |
+
+这些数据不依附于某一个聊天记录，恢复或分支一个会话不会同时恢复看板。消息投递后会进入 DSH 会话；会话中的内容如何交给模型处理，仍由宿主管理。
+
+当前源码包含以下保护：
+
+- **保存成功才更新缓存。** 写入失败时不把未保存的状态展示成已完成的修改。
+- **先备份再恢复损坏文件。** 备份失败时保留原文件并停止重建；Windows 文件锁重试耗尽后也不会直接覆盖原文件。
+- **按请求 ID 防重复投递。** 页面会为失败重试沿用请求 ID；已经确认成功的同一请求不会重复发送。
+- **不确定时提示核对会话。** 发送与回执保存之间发生中断时，不会盲目自动重发；核对目标会话后再决定是否重新发送。
+- **忽略迟到的旧快照。** 页面按已保存的版本号更新，避免旧轮询响应把新状态覆盖回去。
+
+具体的请求 ID、重试和强制重发规则见[接口参考](docs/reference.md#页面-rpc)。这些机制不提供看板文件与宿主收件箱之间的事务性“恰好一次”投递保证。
+
+## 当前边界
+
+- 面向本地单人使用，没有多人权限管理、完整修改审计或撤销。
+- 页面可以新建项目和任务、改任务状态、勾验收项；**完整任务编辑表单、项目/任务删除与归档尚未实现**。任务标题、角色、备注和清单目前通过工具或 RPC 修改。
+- GO 只能派发到已打开的会话，不会替你新建会话、选择模型或切换工作目录。
+- 页面约每 6 秒刷新一次，切回窗口也会刷新；尚未使用实时推送。
+- 顶部计数是全局统计，任务和决策内容按所选项目显示。
+- 共用同一 DSH_HOME 的 profile 共享看板；不支持多个 Host 进程同时写同一份文件。
+- 每条任务的派发和传话历史各保留最近 10 条；防重复投递日志暂不自动清理。
+
+## 开发与检查
+
+Host 位于 `index.js`，负责存储、工具、RPC 和会话投递；Client 位于 `client.js`，负责侧边栏入口和页面。两者共享同一套 Host 数据规则。
+
+```bash
+node test/verify-host.mjs
+node test/check-client.mjs
+node test/verify-reliability.mjs
+node test/verify-client-retry.mjs
+node test/verify-board-rules.mjs
 ```
-.
-├── index.js                 # Host：存储 + 三个工具 + 10 个 RPC 方法 + 会话投递
-├── client.js                # Client：侧边栏图标 + 协作台页面（GO 派发 / 传话 / 投递状态）
-├── package.json             # bundle 清单（dsh.bundle / dsh.client）
-├── cordis.patch.yml         # 把插件插入 profile 的 patch
-├── locale/{zh,en}.json      # 插件页显示的名称与描述
-├── icon.svg                 # 插件图标
-├── test/verify-host.mjs     # Host 行为回归（77 项）
-├── test/check-client.mjs    # Client 静态契约检查
-├── test/verify-reliability.mjs # 存储与投递异常回归
-├── test/verify-client-retry.mjs # Client 重试、页面重载与响应乱序回归
-├── test/verify-board-rules.mjs # 多项目、任务校验与版本持久化回归
-├── .github/workflows/ci.yml # CI：push / PR 在 Linux / macOS / Windows 跑全部检查
-├── CHANGELOG.md
-├── LICENSE                  # MIT
-└── README.md
-```
+
+当前共有 **186 项检查**：Host 行为 77 项、Client 静态契约 14 项、故障注入 41 项、客户端重试/快照/RPC 18 项、看板规则 36 项。测试使用临时数据或模拟上下文，不修改真实看板；CI 在 macOS、Windows 和 Linux 上运行同一套脚本。
+
+架构、目录结构和完整接口见[开发文档](docs/reference.md)，历史变更见 [CHANGELOG](CHANGELOG.md)。
+
+<details>
+<summary>English overview</summary>
+
+Collab Board is a DeepSeek Harness plugin for one person coordinating several AI agents. It brings tasks, acceptance checks and human decisions into a shared sidebar panel. Dispatch a task to an open session with GO, answer a decision card, or send a message directly to a chosen session.
+
+Three agent tools read the board, update tasks and ask for human decisions. State is stored in a local JSON file. The plugin adds no runtime dependencies or build step and relies on DSH services. The macOS workflow has been tested in DSH 0.2.2-rc.1; Windows and Linux have automated CI coverage but no complete live-host validation yet.
+
+</details>
 
 ## 许可证
 

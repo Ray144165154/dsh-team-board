@@ -20,6 +20,8 @@
 
 ### Changed
 
+- 重写 README，按使用场景、安装、平台验证与功能边界介绍项目；完整工具/RPC/存储参考移至 `docs/reference.md`。
+
 - 增加 macOS DSH 0.2.2-rc.1 原生界面验证记录，确认 GO、多项目决策归属、拍板回投、传话与 3/3 验收流程。
 
 - `dispatchTask` / `sendMessage` RPC 新增必填 `requestId`，自定义调用方需更新；升级时需重启 Host 并刷新 Client。
